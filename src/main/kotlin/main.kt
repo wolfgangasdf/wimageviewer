@@ -3,11 +3,11 @@ import javafx.application.Platform
 import javafx.beans.property.SimpleObjectProperty
 import javafx.beans.property.SimpleStringProperty
 import javafx.geometry.Insets
-import javafx.scene.Scene
 import javafx.scene.control.OverrunStyle
 import javafx.scene.image.Image
 import javafx.scene.image.WritableImage
 import javafx.scene.input.KeyCode
+import javafx.scene.input.TransferMode
 import javafx.scene.layout.Background
 import javafx.scene.layout.BackgroundFill
 import javafx.scene.layout.CornerRadii
@@ -30,7 +30,7 @@ import kotlin.system.exitProcess
 
 private lateinit var logger: KLogger
 
-class MainView: View("WImageViewer") {
+class MainView: UIComponent("WImageViewer") {
     private val currentFolder = SimpleStringProperty("")
     val currentFiles = mutableListOf<File>()
 
@@ -48,15 +48,14 @@ class MainView: View("WImageViewer") {
         logger.debug("show next")
         val oldidx = currentFiles.indexOf(currentFile.get())
         if (oldidx < currentFiles.size - 1) currentFile.set(currentFiles[oldidx + 1])
-        else Notifications.create().text("No next image!").show()
-        logger.debug("   $oldidx")
+        else WImageViewer.showNotification("No next image!")
     }
 
     fun showPrev() {
         logger.debug("show prev")
         val oldidx = currentFiles.indexOf(currentFile.get())
         if (oldidx > 0 ) currentFile.set(currentFiles[oldidx - 1])
-        else Notifications.create().text("No previous image!").show()
+        else WImageViewer.showNotification("No previous image!")
     }
 
     private var pInfos: Form = form {}
@@ -65,16 +64,18 @@ class MainView: View("WImageViewer") {
         background = Background(BackgroundFill(Color.YELLOW, CornerRadii.EMPTY, Insets.EMPTY))
         fieldset("File info") {
             field("Name") {
-                label(currentFile)
+                textarea(currentFile.get().absolutePath) {
+                    maxWidth = 400.0
+                    prefHeight = 75.0
+                    isWrapText = true
+                    isEditable = false
+                }
             }
             field("Size") {
                 label(currentFile.get().length().toString())
             }
-
         }
-        label("huhu")
-        maxWidth = 300.0
-        maxHeight = 300.0
+        maxWidth = 500.0
     }
 
     fun showInfos() {
@@ -98,17 +99,18 @@ class MainView: View("WImageViewer") {
             prefHeight = 50.0
         }
         Settings.settings.quickFolders.forEach { (index, file) ->
+            spacer {
+                minWidth = 3.0
+                prefWidth = 10.0
+            }
             button(index.toString()).apply {
                 prefWidth = 25.0
                 prefHeight = 50.0
-                onLeftClick {
-                    println("DOQUICK $file")
-                }
             }
             vbox {
+                maxHeight = 50.0
                 button("e").apply {
                     prefWidth = 25.0
-                    prefHeight = 25.0
                     onLeftClick {
                         chooseDirectory("Choose quick folder")?.also {
                             Settings.settings.quickFolders[index] = it.absolutePath
@@ -118,7 +120,6 @@ class MainView: View("WImageViewer") {
                 }
                 button("x").apply {
                     prefWidth = 25.0
-                    prefHeight = 25.0
                     onLeftClick {
                         Settings.settings.quickFolders[index] = ""
                         hideQuickFolders()
@@ -152,7 +153,7 @@ class MainView: View("WImageViewer") {
             currentFiles.clear()
             currentFiles.addAll(it)
         }
-        runLater { Notifications.create().text("Loaded files in $folder").show() }
+        WImageViewer.showNotification("Loaded files in $folder")
     }
     fun setFolderFile(f: File) {
         if (f.isDirectory) {
@@ -167,6 +168,8 @@ class MainView: View("WImageViewer") {
     }
 
     override val root = stackpane {
+        prefWidth = 800.0
+        prefHeight = 600.0
         background = Background(BackgroundFill(Color.BLACK, CornerRadii.EMPTY, Insets.EMPTY))
         menubar {
             isUseSystemMenuBar = true
@@ -188,6 +191,10 @@ class MainView: View("WImageViewer") {
 
     init {
         currentFile.onChange {
+            if (!currentFile.get().exists()) {
+                logger.error("currentFile $currentFile doesn't exist.")
+                return@onChange
+            }
             if (it?.isDirectory == true) {
                 currentImage.set(textToImage(it.absolutePath))
             } else {
@@ -203,15 +210,17 @@ class MainView: View("WImageViewer") {
 class WImageViewer : App() {
 
     override fun start(stage: Stage) {
+        mainstage = stage
         if (Helpers.isMac()) {
             java.awt.Taskbar.getTaskbar().iconImage = ImageIO.read(this::class.java.getResource("/icons/icon_256x256.png"))
         }
 
-        super.start(stage)
-
         val mv = MainView()
 
-        stage.scene = Scene(mv.root, 800.0, 600.0)
+        stage.scene = createPrimaryScene(mv)
+        stage.setOnShown {
+            stage.title = "WImageViewer"
+        }
         stage.fullScreenExitHint = ""
         stage.fullScreenProperty().onChange {
             logger.debug("fs change: $it")
@@ -222,13 +231,35 @@ class WImageViewer : App() {
         }
         stage.show()
         Platform.setImplicitExit(true)
-        mainstage = stage
 
         stage.scene?.setOnKeyReleased {
             mv.hideQuickFolders()
         }
 
+        stage.scene?.setOnDragOver {
+            if (it.dragboard.hasFiles()) {
+                it.acceptTransferModes(TransferMode.COPY, TransferMode.MOVE, TransferMode.LINK)
+            }
+        }
+        stage.scene?.setOnDragDropped {
+            println("DE: $it")
+            if (it.dragboard.hasFiles()) {
+                it.dragboard.files.firstOrNull()?.also { f ->
+                    mv.setFolderFile(f)
+                }
+            }
+        }
+
         stage.scene?.setOnKeyPressed {
+            if (it.text == "?") {
+                information("Help", """f - toggle fullscreen
+                    |down/up - next/prev
+                    |[alt,cmd]+[1-6] - Quickfolder operations copy/move
+                    |backspace - delete current image
+                    |
+                    |Drop a folder or file onto this to open it!
+                """.trimMargin())
+            }
             when(it.code) {
                 KeyCode.F -> stage.isFullScreen = !stage.isFullScreen
                 KeyCode.DOWN, KeyCode.SPACE -> mv.showNext()
@@ -237,21 +268,30 @@ class WImageViewer : App() {
                 KeyCode.CONTROL -> mv.showQuickFolders(MainView.QuickOperation.LINK)
                 KeyCode.ALT -> mv.showQuickFolders(MainView.QuickOperation.COPY)
                 KeyCode.COMMAND -> mv.showQuickFolders(MainView.QuickOperation.MOVE)
+                KeyCode.BACK_SPACE -> {
+                    val source = mv.currentFile.get()
+                    confirm("Confirm delete current file", source.absolutePath) {
+                        Files.delete(source.toPath())
+                        mv.showNext()
+                        mv.currentFiles.remove(source)
+                        showNotification("Deleted\n$source")
+                    }
+                }
                 in KeyCode.DIGIT1..KeyCode.DIGIT9 -> {
                     val keynumber = it.code.ordinal - KeyCode.DIGIT1.ordinal + 1
                     val source = mv.currentFile.get()
                     if (!source.isFile) {
-                        Notifications.create().text("Current item is not a file").show()
+                        showNotification("Current item is not a file")
                         return@setOnKeyPressed
                     }
                     val target = File(Settings.settings.quickFolders[keynumber]!!)
                     if (!target.isDirectory || !target.canWrite()) {
-                        Notifications.create().text("Target is not a folder or not writable:\n$target").show()
+                        showNotification("Target is not a folder or not writable:\n$target")
                         return@setOnKeyPressed
                     }
                     val targetp = Paths.get(target.absolutePath, source.name)
                     if (targetp.toFile().exists()) {
-                        Notifications.create().text("Target exists already:\n$targetp").show()
+                        showNotification("Target exists already:\n$targetp")
                         return@setOnKeyPressed
                     }
                     if (it.isControlDown && !it.isAltDown && !it.isMetaDown) {
@@ -259,26 +299,27 @@ class WImageViewer : App() {
                         throw UnsupportedOperationException("can't link for now")
                     } else if (!it.isControlDown && it.isAltDown && !it.isMetaDown) {
                         logger.info("copy ${source.toPath()} to $targetp")
-                        val res = Files.copy(source.toPath(), targetp, StandardCopyOption.COPY_ATTRIBUTES)
-                        println("res=$res")
-                        Notifications.create().text("Copied\n$source\nto\n$targetp").show()
+                        Files.copy(source.toPath(), targetp, StandardCopyOption.COPY_ATTRIBUTES)
+                        showNotification("Copied\n$source\nto\n$targetp")
                     } else if (!it.isControlDown && !it.isAltDown && it.isMetaDown) {
                         logger.info("move ${source.toPath()} to $targetp")
                         Files.move(source.toPath(), targetp)
                         mv.showNext()
                         mv.currentFiles.remove(source)
-                        Notifications.create().text("Moved\n$source\nto\n$targetp").show()
+                        showNotification("Moved\n$source\nto\n$targetp")
                     }
                 }
                 else -> {}
             }
         }
 
-        mv.setFolderFile(File("/Users/wolle/tmp/imgtest"))
     }
 
     companion object {
         lateinit var mainstage: Stage
+        fun showNotification(text: String, title: String = "") {
+            runLater { Notifications.create().owner(mainstage).title(title).text(text).show() }
+        }
     }
 }
 

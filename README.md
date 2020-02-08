@@ -3,6 +3,9 @@
 
 WIMageViewer is an image viewer for myself, it does this:
 
+* Quick folders: Move/copy current image to one of the quick folders, easily changable.
+
+
 ### How to run ###
 
 * [Download the zip](https://github.com/wolfgangasdf/wimageviewer/releases), extract it somewhere and double-click the app (Mac) or

@@ -4,12 +4,14 @@ import javafx.beans.property.SimpleObjectProperty
 import javafx.beans.property.SimpleStringProperty
 import javafx.geometry.Insets
 import javafx.scene.Scene
+import javafx.scene.control.OverrunStyle
 import javafx.scene.image.Image
 import javafx.scene.image.WritableImage
 import javafx.scene.input.KeyCode
 import javafx.scene.layout.Background
 import javafx.scene.layout.BackgroundFill
 import javafx.scene.layout.CornerRadii
+import javafx.scene.layout.HBox
 import javafx.scene.paint.Color
 import javafx.scene.text.Text
 import javafx.stage.Stage
@@ -19,6 +21,9 @@ import org.controlsfx.control.Notifications
 import tornadofx.*
 import java.io.File
 import java.lang.management.ManagementFactory
+import java.nio.file.Files
+import java.nio.file.Paths
+import java.nio.file.StandardCopyOption
 import javax.imageio.ImageIO
 import kotlin.system.exitProcess
 
@@ -26,17 +31,17 @@ import kotlin.system.exitProcess
 private lateinit var logger: KLogger
 
 class MainView: View("WImageViewer") {
-    val currentFolder = SimpleStringProperty("")
+    private val currentFolder = SimpleStringProperty("")
     val currentFiles = mutableListOf<File>()
 
-    val currentImage = SimpleObjectProperty<Image?>()
+    private val currentImage = SimpleObjectProperty<Image?>()
     val currentFile = SimpleObjectProperty<File>() // this controls what is shown
 
-    val iv = imageview(currentImage) {
+    private val iv = imageview(currentImage) {
         isPreserveRatio = true
     }
 
-    val imageExtensions = listOf(".jpg", ".jpeg", ".png")
+    private val imageExtensions = listOf(".jpg", ".jpeg", ".png")
 
 
     fun showNext() {
@@ -54,9 +59,9 @@ class MainView: View("WImageViewer") {
         else Notifications.create().text("No previous image!").show()
     }
 
-    var pInfos: Form = form {}
+    private var pInfos: Form = form {}
 
-    fun genInfos() = form {
+    private fun genInfos() = form {
         background = Background(BackgroundFill(Color.YELLOW, CornerRadii.EMPTY, Insets.EMPTY))
         fieldset("File info") {
             field("Name") {
@@ -81,8 +86,68 @@ class MainView: View("WImageViewer") {
         }
     }
 
-    fun updateFiles(folder: File) {
-        folder.listFiles()?.filter { f -> f.isDirectory || imageExtensions.any { f.name.endsWith(it) }}?.also {
+    enum class QuickOperation {
+        COPY, MOVE, LINK
+    }
+
+    private var pQuickFolders: HBox = hbox {}
+    private fun genQuickFolders(operation: QuickOperation) = hbox {
+        button(operation.toString()).apply {
+            prefWidth = 100.0
+            minWidth = prefWidth
+            prefHeight = 50.0
+        }
+        Settings.settings.quickFolders.forEach { (index, file) ->
+            button(index.toString()).apply {
+                prefWidth = 25.0
+                prefHeight = 50.0
+                onLeftClick {
+                    println("DOQUICK $file")
+                }
+            }
+            vbox {
+                button("e").apply {
+                    prefWidth = 25.0
+                    prefHeight = 25.0
+                    onLeftClick {
+                        chooseDirectory("Choose quick folder")?.also {
+                            Settings.settings.quickFolders[index] = it.absolutePath
+                        }
+                        hideQuickFolders()
+                    }
+                }
+                button("x").apply {
+                    prefWidth = 25.0
+                    prefHeight = 25.0
+                    onLeftClick {
+                        Settings.settings.quickFolders[index] = ""
+                        hideQuickFolders()
+                    }
+                }
+            }
+            button(file).apply {
+                minWidth = 50.0
+                maxWidth = 250.0
+                prefHeight = 50.0
+                isWrapText = true
+                textOverrun = OverrunStyle.LEADING_WORD_ELLIPSIS
+                tooltip(file)
+            }
+        }
+    }
+
+    fun showQuickFolders(quickOperation: QuickOperation) {
+        if (root.children.contains(pQuickFolders))
+            root.children.remove(pQuickFolders)
+        pQuickFolders = genQuickFolders(quickOperation)
+        root.add(pQuickFolders)
+    }
+    fun hideQuickFolders() {
+        root.children.remove(pQuickFolders)
+    }
+
+    private fun updateFiles(folder: File) {
+        folder.listFiles()?.filter { f -> f.isDirectory || imageExtensions.any { f.name.endsWith(it) }}?.sorted()?.also {
             logger.debug("adding ${it.joinToString(", ")}")
             currentFiles.clear()
             currentFiles.addAll(it)
@@ -159,12 +224,52 @@ class WImageViewer : App() {
         Platform.setImplicitExit(true)
         mainstage = stage
 
+        stage.scene?.setOnKeyReleased {
+            mv.hideQuickFolders()
+        }
+
         stage.scene?.setOnKeyPressed {
             when(it.code) {
                 KeyCode.F -> stage.isFullScreen = !stage.isFullScreen
                 KeyCode.DOWN, KeyCode.SPACE -> mv.showNext()
                 KeyCode.UP -> mv.showPrev()
                 KeyCode.I -> mv.showInfos()
+                KeyCode.CONTROL -> mv.showQuickFolders(MainView.QuickOperation.LINK)
+                KeyCode.ALT -> mv.showQuickFolders(MainView.QuickOperation.COPY)
+                KeyCode.COMMAND -> mv.showQuickFolders(MainView.QuickOperation.MOVE)
+                in KeyCode.DIGIT1..KeyCode.DIGIT9 -> {
+                    val keynumber = it.code.ordinal - KeyCode.DIGIT1.ordinal + 1
+                    val source = mv.currentFile.get()
+                    if (!source.isFile) {
+                        Notifications.create().text("Current item is not a file").show()
+                        return@setOnKeyPressed
+                    }
+                    val target = File(Settings.settings.quickFolders[keynumber]!!)
+                    if (!target.isDirectory || !target.canWrite()) {
+                        Notifications.create().text("Target is not a folder or not writable:\n$target").show()
+                        return@setOnKeyPressed
+                    }
+                    val targetp = Paths.get(target.absolutePath, source.name)
+                    if (targetp.toFile().exists()) {
+                        Notifications.create().text("Target exists already:\n$targetp").show()
+                        return@setOnKeyPressed
+                    }
+                    if (it.isControlDown && !it.isAltDown && !it.isMetaDown) {
+                        logger.info("link $source to $target")
+                        throw UnsupportedOperationException("can't link for now")
+                    } else if (!it.isControlDown && it.isAltDown && !it.isMetaDown) {
+                        logger.info("copy ${source.toPath()} to $targetp")
+                        val res = Files.copy(source.toPath(), targetp, StandardCopyOption.COPY_ATTRIBUTES)
+                        println("res=$res")
+                        Notifications.create().text("Copied\n$source\nto\n$targetp").show()
+                    } else if (!it.isControlDown && !it.isAltDown && it.isMetaDown) {
+                        logger.info("move ${source.toPath()} to $targetp")
+                        Files.move(source.toPath(), targetp)
+                        mv.showNext()
+                        mv.currentFiles.remove(source)
+                        Notifications.create().text("Moved\n$source\nto\n$targetp").show()
+                    }
+                }
                 else -> {}
             }
         }
@@ -183,7 +288,6 @@ fun main(args: Array<String>) {
     System.setProperty(org.slf4j.simple.SimpleLogger.SHOW_DATE_TIME_KEY, "true")
     System.setProperty(org.slf4j.simple.SimpleLogger.DATE_TIME_FORMAT_KEY, "yyyy-MM-dd HH:mm:ss:SSS")
     System.setProperty(org.slf4j.simple.SimpleLogger.LOG_FILE_KEY, "System.out") // and use intellij "grep console" plugin
-    // System.setProperty("javax.net.debug", "all")
 //    System.setProperty("prism.verbose", "true")
     logger = KotlinLogging.logger {} // after set properties!
 
@@ -196,6 +300,9 @@ fun main(args: Array<String>) {
     ManagementFactory.getRuntimeMXBean().inputArguments.forEach { logger.debug("jvm arg: $it") }
 
     logger.info("starting wimageviewer!")
+
+    Settings
+
     launch<WImageViewer>(args)
 }
 

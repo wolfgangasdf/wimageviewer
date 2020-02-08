@@ -63,16 +63,20 @@ class MainView: UIComponent("WImageViewer") {
     private fun genInfos() = form {
         background = Background(BackgroundFill(Color.YELLOW, CornerRadii.EMPTY, Insets.EMPTY))
         fieldset("File info") {
-            field("Name") {
-                textarea(currentFile.get().absolutePath) {
-                    maxWidth = 400.0
-                    prefHeight = 75.0
-                    isWrapText = true
-                    isEditable = false
+            if (currentFile.isNotNull.value && currentFile.get().exists()) {
+                field("Name") {
+                    textarea(currentFile.get().absolutePath) {
+                        maxWidth = 400.0
+                        prefHeight = 75.0
+                        isWrapText = true
+                        isEditable = false
+                    }
                 }
-            }
-            field("Size") {
-                label(currentFile.get().length().toString())
+                field("Size") {
+                    label(currentFile.get().length().toString())
+                }
+            } else {
+                label("File not found!")
             }
         }
         maxWidth = 500.0

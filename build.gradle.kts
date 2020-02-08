@@ -72,9 +72,9 @@ dependencies {
 
 runtime {
     options.set(listOf("--strip-debug", "--compress", "2", "--no-header-files", "--no-man-pages"))
-    // first row: suggestedModules
-    modules.set(listOf("java.desktop", "java.logging", "java.prefs", "java.xml", "jdk.unsupported", "jdk.jfr", "jdk.jsobject", "jdk.xml.dom",
-            "jdk.crypto.cryptoki","jdk.crypto.ec")) // for some https (apod: ec)
+    // first row: suggestModules
+    modules.set(listOf("java.desktop", "java.logging", "java.prefs", "jdk.unsupported", "jdk.jfr", "jdk.jsobject", "jdk.xml.dom",
+            "java.management"))
 
     if (cPlatforms.contains("mac")) targetPlatform("mac", System.getenv("JDK_MAC_HOME"))
     if (cPlatforms.contains("win")) targetPlatform("win", System.getenv("JDK_WIN_HOME"))

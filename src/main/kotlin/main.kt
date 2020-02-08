@@ -118,6 +118,7 @@ class MainView: UIComponent("WImageViewer") {
                     onLeftClick {
                         chooseDirectory("Choose quick folder")?.also {
                             Settings.settings.quickFolders[index] = it.absolutePath
+                            Settings.saveSettings()
                         }
                         hideQuickFolders()
                     }
@@ -127,6 +128,7 @@ class MainView: UIComponent("WImageViewer") {
                     onLeftClick {
                         Settings.settings.quickFolders[index] = ""
                         hideQuickFolders()
+                        Settings.saveSettings()
                     }
                 }
             }
@@ -172,8 +174,8 @@ class MainView: UIComponent("WImageViewer") {
     }
 
     override val root = stackpane {
-        prefWidth = 800.0
-        prefHeight = 600.0
+        prefWidth = Settings.settings.width
+        prefHeight = Settings.settings.height
         background = Background(BackgroundFill(Color.BLACK, CornerRadii.EMPTY, Insets.EMPTY))
         menubar {
             isUseSystemMenuBar = true
@@ -182,6 +184,9 @@ class MainView: UIComponent("WImageViewer") {
                     chooseDirectory("Open folder")?.also {
                         setFolderFile(it)
                     }
+                }
+                item("Help").setOnAction {
+                    WImageViewer.showHelp()
                 }
             }
         }
@@ -256,13 +261,7 @@ class WImageViewer : App() {
 
         stage.scene?.setOnKeyPressed {
             if (it.text == "?") {
-                information("Help", """f - toggle fullscreen
-                    |down/up - next/prev
-                    |[alt,cmd]+[1-6] - Quickfolder operations copy/move
-                    |backspace - delete current image
-                    |
-                    |Drop a folder or file onto this to open it!
-                """.trimMargin())
+                showHelp()
             }
             when(it.code) {
                 KeyCode.F -> stage.isFullScreen = !stage.isFullScreen
@@ -323,6 +322,15 @@ class WImageViewer : App() {
         lateinit var mainstage: Stage
         fun showNotification(text: String, title: String = "") {
             runLater { Notifications.create().owner(mainstage).title(title).text(text).show() }
+        }
+        fun showHelp() {
+            information("Help", """f - toggle fullscreen
+                    |down/up - next/prev
+                    |[alt,cmd]+[1-6] - Quickfolder operations copy/move
+                    |backspace - delete current image
+                    |
+                    |Drop a folder or file onto this to open it!
+                """.trimMargin())
         }
     }
 }

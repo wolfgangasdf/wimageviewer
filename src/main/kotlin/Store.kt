@@ -26,8 +26,9 @@ object StoreSettings {
 ///////////////////////// settings
 
 class MainSettings(val hideTimeout: IntegerProperty = SIP(50),
-                   val quickFolders: MutableMap<Int, String> = mutableMapOf()
-)
+                   val quickFolders: MutableMap<Int, String> = mutableMapOf(),
+                   var width: Double = 800.0, var height: Double = 600.0
+                   )
 
 object Settings {
     val settings = MainSettings()
@@ -38,6 +39,8 @@ object Settings {
         props["settingsversion"] = "1"
         props["wiv.hideTimeout"] = settings.hideTimeout.value.toString()
         settings.quickFolders.forEach { e -> props["qf.${e.key}"] = e.value }
+        props["wiv.width"] = WImageViewer.mainstage.width.toString()
+        props["wiv.height"] = WImageViewer.mainstage.height.toString()
         StoreSettings.getSettingFile().parentFile.mkdirs()
         val fw = FileWriter(StoreSettings.getSettingFile())
         props.store(fw, null)
@@ -54,10 +57,11 @@ object Settings {
         val props = propsx.map { (k, v) -> k.toString() to v.toString() }.toMap()
         if (props.getOrDefault("settingsversion", "1") != "1") throw Exception("wrong settingsversion!")
         try {
-            settings.hideTimeout.set(props.getOrDefault("wb.hideTimeout", "50").toInt())
+            settings.hideTimeout.set(props.getOrDefault("wiv.hideTimeout", "50").toInt())
             settings.quickFolders.clear()
             for (i in 1..nquickfolder) { settings.quickFolders[i]=props.getOrDefault("qf.$i", "") }
-            println("XXXXXXXXXXX")
+            settings.width = props.getOrDefault("wiv.width", "800.0").toDouble()
+            settings.height = props.getOrDefault("wiv.height", "600.0").toDouble()
         } catch (e: Exception) {
             logger.error("error loading settings: ${e.message}")
             e.printStackTrace()
@@ -67,7 +71,6 @@ object Settings {
 
     init {
         loadSettings()
-        saveSettings()
     }
 
 }

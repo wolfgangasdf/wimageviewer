@@ -25,7 +25,8 @@ object StoreSettings {
 
 ///////////////////////// settings
 
-class MainSettings(val hideTimeout: IntegerProperty = SIP(50))
+class MainSettings(val hideTimeout: IntegerProperty = SIP(50)
+)
 
 object Settings {
     val settings = MainSettings()

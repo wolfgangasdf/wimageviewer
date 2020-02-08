@@ -31,7 +31,10 @@ plugins {
 application {
     mainClassName = "MainKt"
     applicationDefaultJvmArgs = listOf("-Dprism.verbose=true", "-Dprism.order=sw", // use software renderer
-            "--add-opens=javafx.controls/javafx.scene.control=ALL-UNNAMED", "--add-opens=javafx.graphics/javafx.scene=ALL-UNNAMED") // javafx 13 tornadofx bug: https://github.com/edvin/tornadofx/issues/899#issuecomment-569709223
+            // javafx 13 tornadofx bug: https://github.com/edvin/tornadofx/issues/899#issuecomment-569709223
+            "--add-opens=javafx.controls/javafx.scene.control=ALL-UNNAMED", "--add-opens=javafx.graphics/javafx.scene=ALL-UNNAMED"
+            // this seems to also cover controlsfx: https://github.com/controlsfx/controlsfx/wiki/%5BWIP%5D-Using-ControlsFX-with-JDK-9-and-above
+    )
 }
 
 repositories {
@@ -42,7 +45,7 @@ repositories {
 
 javafx {
     version = "13"
-    modules("javafx.base", "javafx.controls", "javafx.web")
+    modules("javafx.base", "javafx.controls", "javafx.web", "javafx.media", "javafx.graphics")
     // set compileOnly for crosspackage to avoid packaging host javafx jmods for all target platforms
     configuration = if (project.gradle.startParameter.taskNames.intersect(listOf("crosspackage", "dist")).isNotEmpty()) "compileOnly" else "implementation"
 }
@@ -55,6 +58,8 @@ dependencies {
     implementation("org.slf4j:slf4j-simple:1.8.0-beta4") // no colors, everything stderr
     implementation("no.tornado:tornadofx:2.0.0-SNAPSHOT")
     implementation("io.methvin:directory-watcher:0.9.9")
+    implementation("org.controlsfx:controlsfx:11.0.1")
+//    implementation("no.tornado:tornadofx-controlsfx:0.1.1")
 
     cPlatforms.forEach {platform ->
         val cfg = configurations.create("javafx_$platform")

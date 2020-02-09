@@ -6,6 +6,7 @@ import tornadofx.error
 import java.awt.Desktop
 import java.io.File
 import java.net.URI
+import java.nio.file.Files
 
 typealias SSP = SimpleStringProperty
 typealias SDP = SimpleDoubleProperty
@@ -36,6 +37,18 @@ object Helpers {
                 desktop.browse(URI(url))
             }
         }
+    }
+
+    fun trashOrDelete(f: File): String {
+        if (Desktop.isDesktopSupported()) {
+            val desktop = Desktop.getDesktop()
+            if (desktop.isSupported(Desktop.Action.MOVE_TO_TRASH)) {
+                desktop.moveToTrash(f)
+                return "Trashed"
+            }
+        }
+        Files.delete(f.toPath())
+        return "Deleted"
     }
 
 }

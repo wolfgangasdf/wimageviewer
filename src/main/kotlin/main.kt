@@ -274,10 +274,10 @@ class WImageViewer : App() {
                 KeyCode.BACK_SPACE -> {
                     val source = mv.currentFile.get()
                     confirm("Confirm delete current file", source.absolutePath) {
-                        Files.delete(source.toPath())
+                        val res = Helpers.trashOrDelete(source)
                         mv.showNext()
                         mv.currentFiles.remove(source)
-                        showNotification("Deleted\n$source")
+                        showNotification("$res \n$source")
                     }
                 }
                 in KeyCode.DIGIT1..KeyCode.DIGIT9 -> {
@@ -324,7 +324,10 @@ class WImageViewer : App() {
             runLater { Notifications.create().owner(mainstage).title(title).text(text).show() }
         }
         fun showHelp() {
-            information("Help", """f - toggle fullscreen
+            information("Help", """
+                    |f - toggle fullscreen
+                    |? - show help
+                    |i - show image information
                     |down/up - next/prev
                     |[alt,cmd]+[1-6] - Quickfolder operations copy/move
                     |backspace - delete current image

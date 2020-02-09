@@ -1,14 +1,15 @@
 
 import javafx.application.Platform
-import javafx.beans.property.SimpleObjectProperty
-import javafx.beans.property.SimpleStringProperty
 import javafx.geometry.Insets
 import javafx.scene.control.OverrunStyle
 import javafx.scene.image.Image
 import javafx.scene.image.WritableImage
 import javafx.scene.input.KeyCode
 import javafx.scene.input.TransferMode
-import javafx.scene.layout.*
+import javafx.scene.layout.Background
+import javafx.scene.layout.BackgroundFill
+import javafx.scene.layout.CornerRadii
+import javafx.scene.layout.HBox
 import javafx.scene.paint.Color
 import javafx.scene.text.Text
 import javafx.stage.Stage
@@ -35,9 +36,9 @@ class HelperWindows(private val mv: MainView) {
     fun genInfos() = Form().apply {
         background = Background(BackgroundFill(Color.YELLOW, CornerRadii.EMPTY, Insets.EMPTY))
         fieldset("File info") {
-            if (mv.currentFile.isNotNull.value && mv.currentFile.get().exists()) {
+            if (mv.currentFile?.file?.exists() == true) {
                 field("Name") {
-                    textarea(mv.currentFile.get().absolutePath) {
+                    textarea(mv.currentFile!!.file.absolutePath) {
                         maxWidth = 400.0
                         prefHeight = 75.0
                         isWrapText = true
@@ -47,7 +48,7 @@ class HelperWindows(private val mv: MainView) {
                     }
                 }
                 field("Size") {
-                    label(mv.currentFile.get().length().toString())
+                    label(mv.currentFile!!.file.length().toString())
                 }
             } else {
                 label("File not found!")
@@ -105,23 +106,62 @@ class HelperWindows(private val mv: MainView) {
 
 }
 
+class MyImage(val file: File): Comparable<MyImage> {
+    val modTime: Long = -1
+    var _img: Image? = null
+    val image: Image
+        get() {
+            return if (!file.exists()) {
+                textToImage("file doesn't exist")!!
+            } else if (file.isDirectory) {
+                textToImage(file.absolutePath)!!
+            } else {
+                logger.debug("myimage: loading ${file.toURI().toURL().toExternalForm()}")
+                Image(file.toURI().toURL().toExternalForm())
+            }
+        }
+    // TODO MUCH too much RAM... Image is bad, need to cache pixels
+//        get() {
+//            if (_img == null) {
+//                if (!file.exists()) {
+//                    _img = textToImage("file doesn't exist")
+//                } else if (file.isDirectory) {
+//                    _img = textToImage(file.absolutePath)
+//                } else {
+//                    logger.debug("myimage: loading ${file.toURI().toURL().toExternalForm()}")
+//                    _img = Image(file.toURI().toURL().toExternalForm())
+//                }
+//            } else {
+//                logger.debug("myimage: using cached image! $file")
+//            }
+//            return _img!!
+//        }
+
+    private fun textToImage(text: String): WritableImage? {
+        val t = Text(text)
+        return t.snapshot(null, null)
+    }
+
+    override fun toString(): String = file.absolutePath
+    override fun compareTo(other: MyImage) = this.file.compareTo(other.file)
+}
+
 class MainView: UIComponent("WImageViewer") {
     private val helperWindows = HelperWindows(this)
 
-    private val currentFolder = SimpleStringProperty("")
-    val currentFiles = mutableListOf<File>()
-    private val currentImage = SimpleObjectProperty<Image?>()
-    val currentFile = SimpleObjectProperty<File>() // this controls what is shown
+    val currentFiles = java.util.concurrent.ConcurrentSkipListSet<MyImage>()
+    var currentFile: MyImage? = null
+    private val guiCurrentPath: SSP = SSP("")
 
     private var pInfo: Form  = form {}
     private var pQuickFolders: HBox = hbox {}
 
-    private val iv = imageview(currentImage) {
+    val iv = imageview {
         isPreserveRatio = true
     }
 
     private val statusBar = borderpane {
-        bottom = label(currentFile).apply {
+        bottom = label(guiCurrentPath).apply {
             background = Background(BackgroundFill(Color.GRAY, CornerRadii.EMPTY, Insets.EMPTY))
             prefHeight = 25.0
         }
@@ -132,15 +172,15 @@ class MainView: UIComponent("WImageViewer") {
 
     fun showNext() {
         logger.debug("show next")
-        val oldidx = currentFiles.indexOf(currentFile.get())
-        if (oldidx < currentFiles.size - 1) currentFile.set(currentFiles[oldidx + 1])
+        val oldidx = currentFiles.indexOf(currentFile)
+        if (oldidx < currentFiles.size - 1) showImage(currentFiles.elementAt(oldidx + 1))
         else WImageViewer.showNotification("No next image!")
     }
 
     fun showPrev() {
         logger.debug("show prev")
-        val oldidx = currentFiles.indexOf(currentFile.get())
-        if (oldidx > 0 ) currentFile.set(currentFiles[oldidx - 1])
+        val oldidx = currentFiles.indexOf(currentFile)
+        if (oldidx > 0 ) showImage(currentFiles.elementAt(oldidx - 1))
         else WImageViewer.showNotification("No previous image!")
     }
 
@@ -171,23 +211,42 @@ class MainView: UIComponent("WImageViewer") {
         }
     }
 
+    // this updates also all gui properties.
+    private fun showImage(img: MyImage?) {
+        currentFile = img
+        if (img == null) {
+            currentFile = null
+            guiCurrentPath.set("<no file>")
+            return
+        }
+        guiCurrentPath.set(img.toString())
+        iv.image = null
+        iv.image = img.image
+    }
+
+    fun clearCache() {
+        logger.info("clear cache!")
+        currentFiles.forEach {
+            it._img = null
+        }
+        System.gc()
+    }
+
     private fun updateFiles(folder: File) {
         folder.listFiles()?.filter { f -> f.isDirectory || imageExtensions.any { f.name.endsWith(it) }}?.sorted()?.also {
             logger.debug("adding ${it.joinToString(", ")}")
             currentFiles.clear()
-            currentFiles.addAll(it)
+            it.forEach { f -> currentFiles.add(MyImage(f)) }
         }
         WImageViewer.showNotification("Loaded files in $folder")
     }
     fun setFolderFile(f: File) {
         if (f.isDirectory) {
-            currentFolder.set(f.absolutePath)
             updateFiles(f)
-            currentFiles.firstOrNull()?.also{ currentFile.set(it) }
+            showImage(currentFiles.firstOrNull())
         } else {
-            currentFolder.set(f.parent)
             updateFiles(f.parentFile)
-            currentFile.set(f)
+            showImage(currentFiles.find { it.file == f }?:currentFiles.firstOrNull())
         }
     }
 
@@ -209,24 +268,7 @@ class MainView: UIComponent("WImageViewer") {
         children += iv
     }
 
-    private fun textToImage(text: String): WritableImage? {
-        val t = Text(text)
-        return t.snapshot(null, null)
-    }
-
     init {
-        currentFile.onChange {
-            if (!currentFile.get().exists()) {
-                logger.error("currentFile $currentFile doesn't exist.")
-                return@onChange
-            }
-            if (it?.isDirectory == true) {
-                currentImage.set(textToImage(it.absolutePath))
-            } else {
-                logger.debug("loading ${currentFile.get().toURI().toURL().toExternalForm()}")
-                currentImage.set(Image(currentFile.get().toURI().toURL().toExternalForm()))
-            }
-        }
         iv.fitWidthProperty().bind(root.widthProperty())
         iv.fitHeightProperty().bind(root.heightProperty())
     }
@@ -286,22 +328,25 @@ class WImageViewer : App() {
                 KeyCode.UP -> mv.showPrev()
                 KeyCode.I -> mv.toggleInfo()
                 KeyCode.B -> mv.toggleStatusBar()
+                KeyCode.C -> mv.clearCache()
                 KeyCode.CONTROL -> mv.showQuickFolders(QuickOperation.LINK)
                 KeyCode.ALT -> mv.showQuickFolders(QuickOperation.COPY)
                 KeyCode.COMMAND -> mv.showQuickFolders(QuickOperation.MOVE)
                 KeyCode.BACK_SPACE -> {
-                    val source = mv.currentFile.get()
-                    confirm("Confirm delete current file", source.absolutePath) {
-                        val res = Helpers.trashOrDelete(source)
-                        mv.showNext()
-                        mv.currentFiles.remove(source)
-                        showNotification("$res \n$source")
+                    mv.currentFile?.also { source ->
+                        confirm("Confirm delete current file", source.file.absolutePath) {
+                            val res = Helpers.trashOrDelete(source.file)
+                            mv.showNext()
+                            mv.currentFiles.remove(source)
+                            showNotification("$res \n$source")
+                        }
                     }
                 }
                 in KeyCode.DIGIT1..KeyCode.DIGIT9 -> {
                     val keynumber = it.code.ordinal - KeyCode.DIGIT1.ordinal + 1
-                    val source = mv.currentFile.get()
-                    if (!source.isFile) {
+                    if (mv.currentFile == null) return@setOnKeyPressed
+                    val source = mv.currentFile!!
+                    if (!source.file.isFile) {
                         showNotification("Current item is not a file")
                         return@setOnKeyPressed
                     }
@@ -310,7 +355,7 @@ class WImageViewer : App() {
                         showNotification("Target is not a folder or not writable:\n$target")
                         return@setOnKeyPressed
                     }
-                    val targetp = Paths.get(target.absolutePath, source.name)
+                    val targetp = Paths.get(target.absolutePath, source.file.name)
                     if (targetp.toFile().exists()) {
                         showNotification("Target exists already:\n$targetp")
                         return@setOnKeyPressed
@@ -319,12 +364,12 @@ class WImageViewer : App() {
                         logger.info("link $source to $target")
                         throw UnsupportedOperationException("can't link for now")
                     } else if (!it.isControlDown && it.isAltDown && !it.isMetaDown) {
-                        logger.info("copy ${source.toPath()} to $targetp")
-                        Files.copy(source.toPath(), targetp, StandardCopyOption.COPY_ATTRIBUTES)
+                        logger.info("copy ${source.file.toPath()} to $targetp")
+                        Files.copy(source.file.toPath(), targetp, StandardCopyOption.COPY_ATTRIBUTES)
                         showNotification("Copied\n$source\nto\n$targetp")
                     } else if (!it.isControlDown && !it.isAltDown && it.isMetaDown) {
-                        logger.info("move ${source.toPath()} to $targetp")
-                        Files.move(source.toPath(), targetp)
+                        logger.info("move ${source.file.toPath()} to $targetp")
+                        Files.move(source.file.toPath(), targetp)
                         mv.showNext()
                         mv.currentFiles.remove(source)
                         showNotification("Moved\n$source\nto\n$targetp")

@@ -27,7 +27,8 @@ object StoreSettings {
 
 class MainSettings(val hideTimeout: IntegerProperty = SIP(50),
                    val quickFolders: MutableMap<Int, String> = mutableMapOf(),
-                   var width: Double = 800.0, var height: Double = 600.0
+                   var width: Double = 800.0, var height: Double = 600.0,
+                   var lastImage: String = ""
                    )
 
 object Settings {
@@ -41,6 +42,7 @@ object Settings {
         settings.quickFolders.forEach { e -> props["qf.${e.key}"] = e.value }
         props["wiv.width"] = WImageViewer.mainstage.width.toString()
         props["wiv.height"] = WImageViewer.mainstage.height.toString()
+        props["wiv.lastimage"] = if (WImageViewer.mv.currentFile.isNotNull.get()) WImageViewer.mv.currentFile.get().absolutePath else ""
         StoreSettings.getSettingFile().parentFile.mkdirs()
         val fw = FileWriter(StoreSettings.getSettingFile())
         props.store(fw, null)
@@ -62,6 +64,7 @@ object Settings {
             for (i in 1..nquickfolder) { settings.quickFolders[i]=props.getOrDefault("qf.$i", "") }
             settings.width = props.getOrDefault("wiv.width", "800.0").toDouble()
             settings.height = props.getOrDefault("wiv.height", "600.0").toDouble()
+            settings.lastImage = props.getOrDefault("wiv.lastimage", "")
         } catch (e: Exception) {
             logger.error("error loading settings: ${e.message}")
             e.printStackTrace()

@@ -8,10 +8,7 @@ import javafx.scene.image.Image
 import javafx.scene.image.WritableImage
 import javafx.scene.input.KeyCode
 import javafx.scene.input.TransferMode
-import javafx.scene.layout.Background
-import javafx.scene.layout.BackgroundFill
-import javafx.scene.layout.CornerRadii
-import javafx.scene.layout.HBox
+import javafx.scene.layout.*
 import javafx.scene.paint.Color
 import javafx.scene.text.Text
 import javafx.stage.Stage
@@ -30,50 +27,27 @@ import kotlin.system.exitProcess
 
 private lateinit var logger: KLogger
 
-class MainView: UIComponent("WImageViewer") {
-    private val currentFolder = SimpleStringProperty("")
-    val currentFiles = mutableListOf<File>()
+enum class QuickOperation {
+    COPY, MOVE, LINK
+}
 
-    private val currentImage = SimpleObjectProperty<Image?>()
-    val currentFile = SimpleObjectProperty<File>() // this controls what is shown
-
-    private val iv = imageview(currentImage) {
-        isPreserveRatio = true
-    }
-
-    private val imageExtensions = listOf(".jpg", ".jpeg", ".png")
-
-
-    fun showNext() {
-        logger.debug("show next")
-        val oldidx = currentFiles.indexOf(currentFile.get())
-        if (oldidx < currentFiles.size - 1) currentFile.set(currentFiles[oldidx + 1])
-        else WImageViewer.showNotification("No next image!")
-    }
-
-    fun showPrev() {
-        logger.debug("show prev")
-        val oldidx = currentFiles.indexOf(currentFile.get())
-        if (oldidx > 0 ) currentFile.set(currentFiles[oldidx - 1])
-        else WImageViewer.showNotification("No previous image!")
-    }
-
-    private var pInfos: Form = form {}
-
-    private fun genInfos() = form {
+class HelperWindows(private val mv: MainView) {
+    fun genInfos() = Form().apply {
         background = Background(BackgroundFill(Color.YELLOW, CornerRadii.EMPTY, Insets.EMPTY))
         fieldset("File info") {
-            if (currentFile.isNotNull.value && currentFile.get().exists()) {
+            if (mv.currentFile.isNotNull.value && mv.currentFile.get().exists()) {
                 field("Name") {
-                    textarea(currentFile.get().absolutePath) {
+                    textarea(mv.currentFile.get().absolutePath) {
                         maxWidth = 400.0
                         prefHeight = 75.0
                         isWrapText = true
                         isEditable = false
+                        isFocusTraversable = false
+                        setOnKeyPressed { WImageViewer.mainstage.scene.onKeyPressed.handle(it) } // propagate keyevents
                     }
                 }
                 field("Size") {
-                    label(currentFile.get().length().toString())
+                    label(mv.currentFile.get().length().toString())
                 }
             } else {
                 label("File not found!")
@@ -82,21 +56,7 @@ class MainView: UIComponent("WImageViewer") {
         maxWidth = 500.0
     }
 
-    fun showInfos() {
-        if (root.children.contains(pInfos))
-            root.children.remove(pInfos)
-        else {
-            pInfos = genInfos()
-            root.add(pInfos)
-        }
-    }
-
-    enum class QuickOperation {
-        COPY, MOVE, LINK
-    }
-
-    private var pQuickFolders: HBox = hbox {}
-    private fun genQuickFolders(operation: QuickOperation) = hbox {
+    fun genQuickFolders(operation: QuickOperation) = HBox().apply {
         button(operation.toString()).apply {
             prefWidth = 100.0
             minWidth = prefWidth
@@ -120,14 +80,14 @@ class MainView: UIComponent("WImageViewer") {
                             Settings.settings.quickFolders[index] = it.absolutePath
                             Settings.saveSettings()
                         }
-                        hideQuickFolders()
+                        mv.hideQuickFolders()
                     }
                 }
                 button("x").apply {
                     prefWidth = 25.0
                     onLeftClick {
                         Settings.settings.quickFolders[index] = ""
-                        hideQuickFolders()
+                        mv.hideQuickFolders()
                         Settings.saveSettings()
                     }
                 }
@@ -143,14 +103,72 @@ class MainView: UIComponent("WImageViewer") {
         }
     }
 
+}
+
+class MainView: UIComponent("WImageViewer") {
+    private val helperWindows = HelperWindows(this)
+
+    private val currentFolder = SimpleStringProperty("")
+    val currentFiles = mutableListOf<File>()
+    private val currentImage = SimpleObjectProperty<Image?>()
+    val currentFile = SimpleObjectProperty<File>() // this controls what is shown
+
+    private var pInfo: Form  = form {}
+    private var pQuickFolders: HBox = hbox {}
+
+    private val iv = imageview(currentImage) {
+        isPreserveRatio = true
+    }
+
+    private val statusBar = borderpane {
+        bottom = label(currentFile).apply {
+            background = Background(BackgroundFill(Color.GRAY, CornerRadii.EMPTY, Insets.EMPTY))
+            prefHeight = 25.0
+        }
+    }
+
+    private val imageExtensions = listOf(".jpg", ".jpeg", ".png")
+
+
+    fun showNext() {
+        logger.debug("show next")
+        val oldidx = currentFiles.indexOf(currentFile.get())
+        if (oldidx < currentFiles.size - 1) currentFile.set(currentFiles[oldidx + 1])
+        else WImageViewer.showNotification("No next image!")
+    }
+
+    fun showPrev() {
+        logger.debug("show prev")
+        val oldidx = currentFiles.indexOf(currentFile.get())
+        if (oldidx > 0 ) currentFile.set(currentFiles[oldidx - 1])
+        else WImageViewer.showNotification("No previous image!")
+    }
+
+    fun toggleInfo() {
+        if (root.children.contains(pInfo)) {
+            root.children.remove(pInfo)
+        } else {
+            pInfo = helperWindows.genInfos()
+            root.add(pInfo)
+        }
+    }
+
     fun showQuickFolders(quickOperation: QuickOperation) {
         if (root.children.contains(pQuickFolders))
             root.children.remove(pQuickFolders)
-        pQuickFolders = genQuickFolders(quickOperation)
+        pQuickFolders = helperWindows.genQuickFolders(quickOperation)
         root.add(pQuickFolders)
     }
     fun hideQuickFolders() {
         root.children.remove(pQuickFolders)
+    }
+
+    fun toggleStatusBar() {
+        if (root.children.contains(statusBar))
+            root.children.remove(statusBar)
+        else {
+            root.add(statusBar)
+        }
     }
 
     private fun updateFiles(folder: File) {
@@ -174,8 +192,6 @@ class MainView: UIComponent("WImageViewer") {
     }
 
     override val root = stackpane {
-        prefWidth = Settings.settings.width
-        prefHeight = Settings.settings.height
         background = Background(BackgroundFill(Color.BLACK, CornerRadii.EMPTY, Insets.EMPTY))
         menubar {
             isUseSystemMenuBar = true
@@ -220,11 +236,11 @@ class WImageViewer : App() {
 
     override fun start(stage: Stage) {
         mainstage = stage
+        mv = MainView()
+
         if (Helpers.isMac()) {
             java.awt.Taskbar.getTaskbar().iconImage = ImageIO.read(this::class.java.getResource("/icons/icon_256x256.png"))
         }
-
-        val mv = MainView()
 
         stage.scene = createPrimaryScene(mv)
         stage.setOnShown {
@@ -238,6 +254,8 @@ class WImageViewer : App() {
             Settings.saveSettings()
             exitProcess(0)
         }
+        stage.width = Settings.settings.width
+        stage.height = Settings.settings.height
         stage.show()
         Platform.setImplicitExit(true)
 
@@ -251,7 +269,6 @@ class WImageViewer : App() {
             }
         }
         stage.scene?.setOnDragDropped {
-            println("DE: $it")
             if (it.dragboard.hasFiles()) {
                 it.dragboard.files.firstOrNull()?.also { f ->
                     mv.setFolderFile(f)
@@ -267,10 +284,11 @@ class WImageViewer : App() {
                 KeyCode.F -> stage.isFullScreen = !stage.isFullScreen
                 KeyCode.DOWN, KeyCode.SPACE -> mv.showNext()
                 KeyCode.UP -> mv.showPrev()
-                KeyCode.I -> mv.showInfos()
-                KeyCode.CONTROL -> mv.showQuickFolders(MainView.QuickOperation.LINK)
-                KeyCode.ALT -> mv.showQuickFolders(MainView.QuickOperation.COPY)
-                KeyCode.COMMAND -> mv.showQuickFolders(MainView.QuickOperation.MOVE)
+                KeyCode.I -> mv.toggleInfo()
+                KeyCode.B -> mv.toggleStatusBar()
+                KeyCode.CONTROL -> mv.showQuickFolders(QuickOperation.LINK)
+                KeyCode.ALT -> mv.showQuickFolders(QuickOperation.COPY)
+                KeyCode.COMMAND -> mv.showQuickFolders(QuickOperation.MOVE)
                 KeyCode.BACK_SPACE -> {
                     val source = mv.currentFile.get()
                     confirm("Confirm delete current file", source.absolutePath) {
@@ -316,10 +334,14 @@ class WImageViewer : App() {
             }
         }
 
-    }
+        if (Settings.settings.lastImage != "") mv.setFolderFile(File(Settings.settings.lastImage))
+
+    } // start
 
     companion object {
         lateinit var mainstage: Stage
+        lateinit var mv: MainView
+
         fun showNotification(text: String, title: String = "") {
             runLater { Notifications.create().owner(mainstage).title(title).text(text).show() }
         }

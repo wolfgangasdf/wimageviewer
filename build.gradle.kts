@@ -37,6 +37,8 @@ application {
     )
 }
 
+
+
 repositories {
     mavenCentral()
     jcenter()
@@ -59,6 +61,8 @@ dependencies {
     implementation("no.tornado:tornadofx:2.0.0-SNAPSHOT")
     implementation("io.methvin:directory-watcher:0.9.9")
     implementation("org.controlsfx:controlsfx:11.0.1")
+    implementation("com.drewnoakes:metadata-extractor:2.13.0")
+
 //    implementation("no.tornado:tornadofx-controlsfx:0.1.1")
 
     cPlatforms.forEach {platform ->
@@ -74,7 +78,7 @@ runtime {
     options.set(listOf("--strip-debug", "--compress", "2", "--no-header-files", "--no-man-pages"))
     // first row: suggestModules
     modules.set(listOf("java.desktop", "java.logging", "java.prefs", "jdk.unsupported", "jdk.jfr", "jdk.jsobject", "jdk.xml.dom",
-            "java.management"))
+            "java.management", "jdk.crypto.cryptoki","jdk.crypto.ec"))
 
     if (cPlatforms.contains("mac")) targetPlatform("mac", System.getenv("JDK_MAC_HOME"))
     if (cPlatforms.contains("win")) targetPlatform("win", System.getenv("JDK_WIN_HOME"))

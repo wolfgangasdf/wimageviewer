@@ -1,4 +1,6 @@
-
+import com.drew.imaging.ImageMetadataReader
+import com.drew.lang.GeoLocation
+import com.drew.metadata.exif.GpsDirectory
 import javafx.application.Platform
 import javafx.geometry.Insets
 import javafx.scene.control.OverrunStyle
@@ -33,10 +35,37 @@ enum class QuickOperation {
 }
 
 class HelperWindows(private val mv: MainView) {
+    private fun leafletHTML(geo: GeoLocation) = """
+                            <!DOCTYPE html>
+                            <html>
+                            <head>
+                            	<meta charset="utf-8" />
+                            	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+                                <link rel="stylesheet" href="https://unpkg.com/leaflet@1.6.0/dist/leaflet.css" integrity="sha512-xwE/Az9zrjBIphAcBb3F6JVqxf46+CDLwfLMHloNu6KEQCAWi6HcDUbeOfBIptF7tcCzusKFjFw2yuvEpDL9wQ==" crossorigin=""/>
+                                <script src="https://unpkg.com/leaflet@1.6.0/dist/leaflet.js" integrity="sha512-gZwIG9x3wUXg2hdXF6+rVkLF/0Vi9U8D2Ntg4Ga5I5BZpVkVxlJWbSQtXPSiUTtC0TjtGOmxa1AJPuV0CPthew==" crossorigin=""></script>
+                            </head>
+                            <body>
+                            <div id="mapid" style="width: 350px; height: 250px;"></div>
+                            <script>
+                            	var mymap = L.map('mapid').setView([${geo.latitude}, ${geo.longitude}], 13);
+                            	L.tileLayer('https://api.mapbox.com/styles/v1/{id}/tiles/{z}/{x}/{y}?access_token=pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4NXVycTA2emYycXBndHRqcmZ3N3gifQ.rJcFIG214AriISLbB6B5aw', {
+                            		maxZoom: 18,
+                            		attribution: '<a href="https://www.openstreetmap.org/">OpenStreetMap</a> , ' +
+                            			'<a href="https://www.mapbox.com/">Mapbox</a>',
+                            		id: 'mapbox/streets-v11',
+                            		tileSize: 512,
+                            		zoomOffset: -1
+                            	}).addTo(mymap);
+                            	L.marker([${geo.latitude}, ${geo.longitude}]).addTo(mymap);
+                            </script>
+                            </body>
+                            </html>
+                            """.trimIndent()
     fun genInfos() = Form().apply {
         background = Background(BackgroundFill(Color.YELLOW, CornerRadii.EMPTY, Insets.EMPTY))
         fieldset("File info") {
             if (mv.currentFile?.file?.exists() == true) {
+                mv.currentFile!!.readInfos()
                 field("Name") {
                     textarea(mv.currentFile!!.file.absolutePath) {
                         maxWidth = 400.0
@@ -49,6 +78,31 @@ class HelperWindows(private val mv: MainView) {
                 }
                 field("Size") {
                     label(mv.currentFile!!.file.length().toString())
+                }
+                field("Tags") {
+                    textarea {
+                        prefHeight = 150.0
+                        text = mv.currentFile!!.tags
+                        isEditable = false
+                        isFocusTraversable = false
+                    }
+                }
+                mv.currentFile!!.geo?.also { geo ->
+                    field("Location") {
+                        // background = Background(BackgroundFill(Color.GRAY, CornerRadii.EMPTY, Insets.EMPTY))
+                        webview {
+                            prefWidth = 350.0
+                            prefHeight = 270.0
+                            runLater {
+                                engine.loadContent(leafletHTML(geo))
+                            }
+                        }
+                    }
+                    field("Links") {
+                        button("Google maps").setOnAction {
+                            Helpers.openURL("http://maps.google.com/maps?q=${geo.latitude},${geo.longitude}&z=17")
+                        }
+                    }
                 }
             } else {
                 label("File not found!")
@@ -106,9 +160,9 @@ class HelperWindows(private val mv: MainView) {
 
 }
 
-class MyImage(val file: File): Comparable<MyImage> {
-    val modTime: Long = -1
-    var _img: Image? = null
+class MyImage(val file: File) : Comparable<MyImage> {
+    var tags: String = ""
+    var geo: GeoLocation? = null
     val image: Image
         get() {
             return if (!file.exists()) {
@@ -120,43 +174,40 @@ class MyImage(val file: File): Comparable<MyImage> {
                 Image(file.toURI().toURL().toExternalForm())
             }
         }
-    // TODO MUCH too much RAM... Image is bad, need to cache pixels
-//        get() {
-//            if (_img == null) {
-//                if (!file.exists()) {
-//                    _img = textToImage("file doesn't exist")
-//                } else if (file.isDirectory) {
-//                    _img = textToImage(file.absolutePath)
-//                } else {
-//                    logger.debug("myimage: loading ${file.toURI().toURL().toExternalForm()}")
-//                    _img = Image(file.toURI().toURL().toExternalForm())
-//                }
-//            } else {
-//                logger.debug("myimage: using cached image! $file")
-//            }
-//            return _img!!
-//        }
 
     private fun textToImage(text: String): WritableImage? {
         val t = Text(text)
         return t.snapshot(null, null)
     }
 
+    fun readInfos() {
+        val metadata = ImageMetadataReader.readMetadata(file)
+        tags = ""
+        tags += "$metadata\nTags:\n"
+        metadata.directories.forEach { directory ->
+            directory.tags.forEach { tags += it.toString() + "\n" }
+        }
+        val gpsDirectory: GpsDirectory? = metadata.getFirstDirectoryOfType(GpsDirectory::class.java)
+        geo = gpsDirectory?.geoLocation
+        geo?.also { tags += "\ngeo: ${it.toDMSString()}" }
+    }
+
     override fun toString(): String = file.absolutePath
     override fun compareTo(other: MyImage) = this.file.compareTo(other.file)
 }
 
-class MainView: UIComponent("WImageViewer") {
+class MainView : UIComponent("WImageViewer") {
     private val helperWindows = HelperWindows(this)
+    private val imageExtensions = listOf(".jpg", ".jpeg", ".png")
 
     val currentFiles = java.util.concurrent.ConcurrentSkipListSet<MyImage>()
     var currentFile: MyImage? = null
     private val guiCurrentPath: SSP = SSP("")
 
-    private var pInfo: Form  = form {}
+    private var pInfo: Form = form {}
     private var pQuickFolders: HBox = hbox {}
 
-    val iv = imageview {
+    private val iv = imageview {
         isPreserveRatio = true
     }
 
@@ -166,9 +217,6 @@ class MainView: UIComponent("WImageViewer") {
             prefHeight = 25.0
         }
     }
-
-    private val imageExtensions = listOf(".jpg", ".jpeg", ".png")
-
 
     fun showNext() {
         logger.debug("show next")
@@ -180,7 +228,7 @@ class MainView: UIComponent("WImageViewer") {
     fun showPrev() {
         logger.debug("show prev")
         val oldidx = currentFiles.indexOf(currentFile)
-        if (oldidx > 0 ) showImage(currentFiles.elementAt(oldidx - 1))
+        if (oldidx > 0) showImage(currentFiles.elementAt(oldidx - 1))
         else WImageViewer.showNotification("No previous image!")
     }
 
@@ -199,6 +247,7 @@ class MainView: UIComponent("WImageViewer") {
         pQuickFolders = helperWindows.genQuickFolders(quickOperation)
         root.add(pQuickFolders)
     }
+
     fun hideQuickFolders() {
         root.children.remove(pQuickFolders)
     }
@@ -224,29 +273,22 @@ class MainView: UIComponent("WImageViewer") {
         iv.image = img.image
     }
 
-    fun clearCache() {
-        logger.info("clear cache!")
-        currentFiles.forEach {
-            it._img = null
-        }
-        System.gc()
-    }
-
     private fun updateFiles(folder: File) {
-        folder.listFiles()?.filter { f -> f.isDirectory || imageExtensions.any { f.name.endsWith(it) }}?.sorted()?.also {
+        folder.listFiles()?.filter { f -> f.isDirectory || imageExtensions.any { f.name.endsWith(it) } }?.sorted()?.also {
             logger.debug("adding ${it.joinToString(", ")}")
             currentFiles.clear()
             it.forEach { f -> currentFiles.add(MyImage(f)) }
         }
         WImageViewer.showNotification("Loaded files in $folder")
     }
+
     fun setFolderFile(f: File) {
         if (f.isDirectory) {
             updateFiles(f)
             showImage(currentFiles.firstOrNull())
         } else {
             updateFiles(f.parentFile)
-            showImage(currentFiles.find { it.file == f }?:currentFiles.firstOrNull())
+            showImage(currentFiles.find { it.file == f } ?: currentFiles.firstOrNull())
         }
     }
 
@@ -322,13 +364,12 @@ class WImageViewer : App() {
             if (it.text == "?") {
                 showHelp()
             }
-            when(it.code) {
+            when (it.code) {
                 KeyCode.F -> stage.isFullScreen = !stage.isFullScreen
                 KeyCode.DOWN, KeyCode.SPACE -> mv.showNext()
                 KeyCode.UP -> mv.showPrev()
                 KeyCode.I -> mv.toggleInfo()
                 KeyCode.B -> mv.toggleStatusBar()
-                KeyCode.C -> mv.clearCache()
                 KeyCode.CONTROL -> mv.showQuickFolders(QuickOperation.LINK)
                 KeyCode.ALT -> mv.showQuickFolders(QuickOperation.COPY)
                 KeyCode.COMMAND -> mv.showQuickFolders(QuickOperation.MOVE)
@@ -375,7 +416,8 @@ class WImageViewer : App() {
                         showNotification("Moved\n$source\nto\n$targetp")
                     }
                 }
-                else -> {}
+                else -> {
+                }
             }
         }
 
@@ -390,11 +432,12 @@ class WImageViewer : App() {
         fun showNotification(text: String, title: String = "") {
             runLater { Notifications.create().owner(mainstage).title(title).text(text).show() }
         }
+
         fun showHelp() {
             information("Help", """
                     |f - toggle fullscreen
                     |? - show help
-                    |i - show image information
+                    |i - show image information and geolocation
                     |down/up - next/prev
                     |[alt,cmd]+[1-6] - Quickfolder operations copy/move
                     |backspace - delete current image
@@ -406,7 +449,6 @@ class WImageViewer : App() {
 }
 
 fun main(args: Array<String>) {
-
     System.setProperty(org.slf4j.simple.SimpleLogger.DEFAULT_LOG_LEVEL_KEY, "TRACE")
     System.setProperty(org.slf4j.simple.SimpleLogger.SHOW_DATE_TIME_KEY, "true")
     System.setProperty(org.slf4j.simple.SimpleLogger.DATE_TIME_FORMAT_KEY, "yyyy-MM-dd HH:mm:ss:SSS")

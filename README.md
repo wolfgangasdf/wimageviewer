@@ -4,7 +4,8 @@
 WIMageViewer is an image viewer for myself, it does this:
 
 * Quick folders: Move/copy current image to one of the quick folders, easily changable.
-
+* Show geolocation in infos
+* press
 
 ### How to run ###
 
@@ -27,7 +28,10 @@ Packaging:
 
 * [Kotlin](https://kotlinlang.org/) and [Gradle](https://gradle.org/)
 * [TornadoFX](https://github.com/edvin/tornadofx)
+* [Metadata extractor](https://github.com/drewnoakes/metadata-extractor) to extract image tags and geolocation
 * [Directory-watcher](https://github.com/gmethvin/directory-watcher) to watch local files for changes
+* [controlsfx](https://github.com/controlsfx/controlsfx) for notifications
+* [leafletjs](https://leafletjs.com/) for maps
 
 ### License ###
 [MIT](http://opensource.org/licenses/MIT)

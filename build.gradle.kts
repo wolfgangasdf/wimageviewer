@@ -59,11 +59,9 @@ dependencies {
     implementation("io.github.microutils:kotlin-logging:1.7.8")
     implementation("org.slf4j:slf4j-simple:1.8.0-beta4") // no colors, everything stderr
     implementation("no.tornado:tornadofx:2.0.0-SNAPSHOT")
-    implementation("io.methvin:directory-watcher:0.9.9")
+    // implementation("io.methvin:directory-watcher:0.9.9")
     implementation("org.controlsfx:controlsfx:11.0.1")
     implementation("com.drewnoakes:metadata-extractor:2.13.0")
-
-//    implementation("no.tornado:tornadofx-controlsfx:0.1.1")
 
     cPlatforms.forEach {platform ->
         val cfg = configurations.create("javafx_$platform")

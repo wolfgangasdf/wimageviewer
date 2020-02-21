@@ -4,6 +4,7 @@ import com.drew.metadata.exif.GpsDirectory
 import javafx.application.Platform
 import javafx.geometry.Insets
 import javafx.scene.control.OverrunStyle
+import javafx.scene.control.TextInputDialog
 import javafx.scene.image.Image
 import javafx.scene.image.WritableImage
 import javafx.scene.input.KeyCode
@@ -15,6 +16,7 @@ import javafx.scene.layout.HBox
 import javafx.scene.paint.Color
 import javafx.scene.text.Text
 import javafx.stage.Stage
+import javafx.util.Duration
 import mu.KLogger
 import mu.KotlinLogging
 import org.controlsfx.control.Notifications
@@ -207,7 +209,7 @@ class MainView : UIComponent("WImageViewer") {
     private var pInfo: Form = form {}
     private var pQuickFolders: HBox = hbox {}
 
-    private val iv = imageview {
+    val iv = imageview {
         isPreserveRatio = true
     }
 
@@ -218,18 +220,34 @@ class MainView : UIComponent("WImageViewer") {
         }
     }
 
-    fun showNext() {
+    fun showFirst(showLast: Boolean = false) {
+        logger.debug("show first")
+        if (currentFiles.size > 0) {
+            showImage(currentFiles.elementAt(if (showLast) currentFiles.size - 1 else 0))
+            WImageViewer.showNotification("Showing ${if (showLast) "last" else "first"} image!")
+        } else {
+            WImageViewer.showNotification("No images!")
+        }
+    }
+
+    fun showNext() { // if at last file, show the one before the current file
         logger.debug("show next")
         val oldidx = currentFiles.indexOf(currentFile)
-        if (oldidx < currentFiles.size - 1) showImage(currentFiles.elementAt(oldidx + 1))
-        else WImageViewer.showNotification("No next image!")
+        when {
+            oldidx == -1 -> showFirst()
+            oldidx < currentFiles.size - 1 -> showImage(currentFiles.elementAt(oldidx + 1))
+            else -> WImageViewer.showNotification("No next image!")
+        }
     }
 
     fun showPrev() {
         logger.debug("show prev")
         val oldidx = currentFiles.indexOf(currentFile)
-        if (oldidx > 0) showImage(currentFiles.elementAt(oldidx - 1))
-        else WImageViewer.showNotification("No previous image!")
+        when {
+            oldidx == -1 -> showFirst()
+            oldidx > 0 -> showImage(currentFiles.elementAt(oldidx - 1))
+            else -> WImageViewer.showNotification("No previous image!")
+        }
     }
 
     fun toggleInfo() {
@@ -298,7 +316,7 @@ class MainView : UIComponent("WImageViewer") {
             isUseSystemMenuBar = true
             menu("File") {
                 item("Open").setOnAction {
-                    chooseDirectory("Open folder")?.also {
+                    chooseDirectory("Open folder", currentFile?.file?.parentFile)?.also {
                         setFolderFile(it)
                     }
                 }
@@ -368,14 +386,34 @@ class WImageViewer : App() {
                 KeyCode.F -> stage.isFullScreen = !stage.isFullScreen
                 KeyCode.DOWN, KeyCode.SPACE -> mv.showNext()
                 KeyCode.UP -> mv.showPrev()
+                KeyCode.HOME -> mv.showFirst()
+                KeyCode.END -> mv.showFirst(true)
+                KeyCode.LEFT -> mv.currentFile?.file?.parentFile?.parentFile?.also { pf -> mv.setFolderFile(pf) }
+                KeyCode.RIGHT -> if (mv.currentFile?.file?.isDirectory == true) { mv.setFolderFile(mv.currentFile!!.file) }
                 KeyCode.I -> mv.toggleInfo()
                 KeyCode.B -> mv.toggleStatusBar()
+                KeyCode.R -> mv.iv.rotate = mv.iv.rotate + 90
                 KeyCode.CONTROL -> mv.showQuickFolders(QuickOperation.LINK)
                 KeyCode.ALT -> mv.showQuickFolders(QuickOperation.COPY)
                 KeyCode.COMMAND -> mv.showQuickFolders(QuickOperation.MOVE)
+                KeyCode.L -> if (mv.currentFile?.file?.exists() == true) Helpers.revealFile(mv.currentFile!!.file)
+                KeyCode.N -> {
+                    if (mv.currentFile?.file?.exists() == true) {
+                        TextInputDialog(mv.currentFile!!.file.name).showAndWait().ifPresent { s ->
+                            val p = mv.currentFile!!.file.toPath()
+                            val t = p.resolveSibling(s)
+                            logger.info("rename $p to $t")
+                            Files.move(p, t)
+                            mv.setFolderFile(t.toFile())
+                            showNotification("Moved\n$p\nto\n$t")
+                        }
+                    }
+                }
                 KeyCode.BACK_SPACE -> {
                     mv.currentFile?.also { source ->
-                        confirm("Confirm delete current file", source.file.absolutePath) {
+                        var doit = it.isMetaDown
+                        if (!doit) confirm("Confirm delete current file", source.file.absolutePath) { doit = true }
+                        if (doit) {
                             val res = Helpers.trashOrDelete(source.file)
                             mv.showNext()
                             mv.currentFiles.remove(source)
@@ -383,7 +421,7 @@ class WImageViewer : App() {
                         }
                     }
                 }
-                in KeyCode.DIGIT1..KeyCode.DIGIT9 -> {
+                in KeyCode.DIGIT1..KeyCode.DIGIT6 -> {
                     val keynumber = it.code.ordinal - KeyCode.DIGIT1.ordinal + 1
                     if (mv.currentFile == null) return@setOnKeyPressed
                     val source = mv.currentFile!!
@@ -428,21 +466,34 @@ class WImageViewer : App() {
     companion object {
         lateinit var mainstage: Stage
         lateinit var mv: MainView
-
+        private var notificationTimeoutMs: Long = 0
+        private var notificationLastMsg: String = ""
         fun showNotification(text: String, title: String = "") {
-            runLater { Notifications.create().owner(mainstage).title(title).text(text).show() }
+            runLater {
+                val msg = text + title
+                if (System.currentTimeMillis() > notificationTimeoutMs || notificationLastMsg != msg) { // avoid spam
+                    notificationLastMsg = msg
+                    notificationTimeoutMs = System.currentTimeMillis() + 2000
+                    Notifications.create().owner(mainstage).hideAfter(Duration(2000.0)).title(title).text(text).show()
+                }
+            }
         }
 
         fun showHelp() {
             information("Help", """
                     |f - toggle fullscreen
-                    |? - show help
                     |i - show image information and geolocation
                     |down/up - next/prev
+                    |home/end - first/last
+                    |r - rotate
+                    |n - rename
+                    |l - reveal file in file browser
+                    |backspace - trash/delete current image (meta: don't confirm)
                     |[alt,cmd]+[1-6] - Quickfolder operations copy/move
-                    |backspace - delete current image
+                    |left/right - navigate folders
+                    |? - show this help
                     |
-                    |Drop a folder or file onto this to open it!
+                    |Drop a folder or file onto the main window to open it!
                 """.trimMargin())
         }
     }

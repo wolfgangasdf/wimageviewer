@@ -1,5 +1,4 @@
 
-import javafx.beans.property.SimpleDoubleProperty
 import javafx.beans.property.SimpleIntegerProperty
 import javafx.beans.property.SimpleStringProperty
 import tornadofx.error
@@ -9,7 +8,6 @@ import java.net.URI
 import java.nio.file.Files
 
 typealias SSP = SimpleStringProperty
-typealias SDP = SimpleDoubleProperty
 typealias SIP = SimpleIntegerProperty
 
 object Helpers {

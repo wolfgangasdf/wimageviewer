@@ -1,11 +1,25 @@
 
 # Introduction
 
-WIMageViewer is an image viewer for myself, it does this:
+WIMageViewer is an image/photo viewer for myself, it does this:
 
 * Quick folders: Move/copy current image to one of the quick folders, easily changable.
 * Show geolocation in infos
-* press
+* The help:
+
+                    |f - toggle fullscreen
+                    |i - show image information and geolocation
+                    |down/up - next/prev
+                    |home/end - first/last
+                    |r - rotate
+                    |n - rename
+                    |l - reveal file in file browser
+                    |backspace - trash/delete current image (meta: don't confirm)
+                    |[alt,cmd]+[1-6] - Quickfolder operations copy/move
+                    |left/right - navigate folders
+                    |? - show this help
+                    |
+                    |Drop a folder or file onto the main window to open it!
 
 ### How to run ###
 
@@ -29,7 +43,6 @@ Packaging:
 * [Kotlin](https://kotlinlang.org/) and [Gradle](https://gradle.org/)
 * [TornadoFX](https://github.com/edvin/tornadofx)
 * [Metadata extractor](https://github.com/drewnoakes/metadata-extractor) to extract image tags and geolocation
-* [Directory-watcher](https://github.com/gmethvin/directory-watcher) to watch local files for changes
 * [controlsfx](https://github.com/controlsfx/controlsfx) for notifications
 * [leafletjs](https://leafletjs.com/) for maps
 

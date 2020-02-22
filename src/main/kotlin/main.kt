@@ -9,10 +9,7 @@ import javafx.scene.image.Image
 import javafx.scene.image.WritableImage
 import javafx.scene.input.KeyCode
 import javafx.scene.input.TransferMode
-import javafx.scene.layout.Background
-import javafx.scene.layout.BackgroundFill
-import javafx.scene.layout.CornerRadii
-import javafx.scene.layout.HBox
+import javafx.scene.layout.*
 import javafx.scene.paint.Color
 import javafx.scene.text.Text
 import javafx.stage.Stage
@@ -33,7 +30,7 @@ import kotlin.system.exitProcess
 private lateinit var logger: KLogger
 
 enum class QuickOperation {
-    COPY, MOVE, LINK
+    COPY, MOVE
 }
 
 class HelperWindows(private val mv: MainView) {
@@ -312,19 +309,6 @@ class MainView : UIComponent("WImageViewer") {
 
     override val root = stackpane {
         background = Background(BackgroundFill(Color.BLACK, CornerRadii.EMPTY, Insets.EMPTY))
-        menubar {
-            isUseSystemMenuBar = true
-            menu("File") {
-                item("Open").setOnAction {
-                    chooseDirectory("Open folder", currentFile?.file?.parentFile)?.also {
-                        setFolderFile(it)
-                    }
-                }
-                item("Help").setOnAction {
-                    WImageViewer.showHelp()
-                }
-            }
-        }
         children += iv
     }
 
@@ -393,9 +377,14 @@ class WImageViewer : App() {
                 KeyCode.I -> mv.toggleInfo()
                 KeyCode.B -> mv.toggleStatusBar()
                 KeyCode.R -> mv.iv.rotate = mv.iv.rotate + 90
-                KeyCode.CONTROL -> mv.showQuickFolders(QuickOperation.LINK)
+                KeyCode.O -> {
+                    chooseDirectory("Open folder", mv.currentFile?.file?.parentFile)?.also { f ->
+                        mv.setFolderFile(f)
+                    }
+                }
                 KeyCode.ALT -> mv.showQuickFolders(QuickOperation.COPY)
                 KeyCode.COMMAND -> mv.showQuickFolders(QuickOperation.MOVE)
+                KeyCode.CONTROL -> mv.showQuickFolders(QuickOperation.MOVE)
                 KeyCode.L -> if (mv.currentFile?.file?.exists() == true) Helpers.revealFile(mv.currentFile!!.file)
                 KeyCode.N -> {
                     if (mv.currentFile?.file?.exists() == true) {
@@ -439,14 +428,11 @@ class WImageViewer : App() {
                         showNotification("Target exists already:\n$targetp")
                         return@setOnKeyPressed
                     }
-                    if (it.isControlDown && !it.isAltDown && !it.isMetaDown) {
-                        logger.info("link $source to $target")
-                        throw UnsupportedOperationException("can't link for now")
-                    } else if (!it.isControlDown && it.isAltDown && !it.isMetaDown) {
+                    if (!it.isControlDown && it.isAltDown && !it.isMetaDown) {
                         logger.info("copy ${source.file.toPath()} to $targetp")
                         Files.copy(source.file.toPath(), targetp, StandardCopyOption.COPY_ATTRIBUTES)
                         showNotification("Copied\n$source\nto\n$targetp")
-                    } else if (!it.isControlDown && !it.isAltDown && it.isMetaDown) {
+                    } else if (!it.isAltDown && (it.isControlDown || it.isMetaDown)) {
                         logger.info("move ${source.file.toPath()} to $targetp")
                         Files.move(source.file.toPath(), targetp)
                         mv.showNext()
@@ -491,6 +477,7 @@ class WImageViewer : App() {
                     |backspace - trash/delete current image (meta: don't confirm)
                     |[alt,cmd]+[1-6] - Quickfolder operations copy/move
                     |left/right - navigate folders
+                    |o - open Folder
                     |? - show this help
                     |
                     |Drop a folder or file onto the main window to open it!

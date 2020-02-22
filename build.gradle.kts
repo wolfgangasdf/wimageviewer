@@ -1,4 +1,5 @@
 
+import org.gradle.kotlin.dsl.support.zipTo
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import org.openjfx.gradle.JavaFXModule
 import org.openjfx.gradle.JavaFXOptions
@@ -24,7 +25,7 @@ plugins {
     id("idea")
     application
     id("org.openjfx.javafxplugin") version "0.0.8"
-    id("com.github.ben-manes.versions") version "0.27.0"
+    id("com.github.ben-manes.versions") version "0.28.0"
     id("org.beryx.runtime") version "1.8.0"
 }
 
@@ -89,6 +90,7 @@ open class CrossPackage : DefaultTask() {
 
     @TaskAction
     fun crossPackage() {
+        File("${project.buildDir.path}/crosspackage/").mkdirs()
         project.runtime.targetPlatforms.get().forEach { (t, _) ->
             println("targetplatform: $t")
             val imgdir = "${project.runtime.imageDir.get()}/${project.name}-$t"
@@ -153,25 +155,13 @@ open class CrossPackage : DefaultTask() {
                     // touch folder to update Finder
                     File(appp).setLastModified(System.currentTimeMillis())
                     // zip it
-                    ant.withGroovyBuilder {
-                        "zip"("destfile" to "${project.buildDir.path}/crosspackage/$execfilename-mac.zip",
-                                "basedir" to "${project.buildDir.path}/crosspackage/mac") {
-                        }
-                    }
+                    zipTo(File("${project.buildDir.path}/crosspackage/$execfilename-mac.zip"), File("${project.buildDir.path}/crosspackage/mac"))
                 }
                 "win" -> {
-                    ant.withGroovyBuilder {
-                        "zip"("destfile" to "${project.buildDir.path}/crosspackage/$execfilename-win.zip",
-                                "basedir" to imgdir) {
-                        }
-                    }
+                    zipTo(File("${project.buildDir.path}/crosspackage/$execfilename-win.zip"), File(imgdir))
                 }
                 "linux" -> {
-                    ant.withGroovyBuilder {
-                        "zip"("destfile" to "${project.buildDir.path}/crosspackage/$execfilename-linux.zip",
-                                "basedir" to imgdir) {
-                        }
-                    }
+                    zipTo(File("${project.buildDir.path}/crosspackage/$execfilename-linux.zip"), File(imgdir))
                 }
             }
         }

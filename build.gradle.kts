@@ -85,8 +85,8 @@ runtime {
 }
 
 open class CrossPackage : DefaultTask() {
-    var execfilename = "execfilename"
-    var macicnspath = "macicnspath" // name should be execfilename.icns
+    @org.gradle.api.tasks.Input var execfilename = "execfilename"
+    @org.gradle.api.tasks.Input var macicnspath = "macicnspath"
 
     @TaskAction
     fun crossPackage() {

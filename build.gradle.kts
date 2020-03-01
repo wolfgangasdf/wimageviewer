@@ -201,5 +201,9 @@ tasks.withType<KotlinCompile> {
 
 task("dist") {
     dependsOn("crosspackage")
-    doLast { println("Created zips in build/crosspackage") }
+    doLast {
+        println("Deleting build/[image,jre,install]")
+        project.delete(project.runtime.imageDir.get(), project.runtime.jreDir.get(), "${project.buildDir.path}/install")
+        println("Created zips in build/crosspackage")
+    }
 }

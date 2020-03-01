@@ -1,7 +1,7 @@
 
 # Introduction
 
-WIMageViewer is an image/photo viewer for myself, it does this:
+WIMageViewer is an image/photo viewer, it does this:
 
 * Quick folders: Move/copy current image to one of the quick folders, easily changable.
 * Show geolocation in infos
@@ -12,11 +12,13 @@ WIMageViewer is an image/photo viewer for myself, it does this:
                     |down/up - next/prev
                     |home/end - first/last
                     |r - rotate
+                    |[+,-,=] - zoom in,out,fit
                     |n - rename
                     |l - reveal file in file browser
                     |backspace - trash/delete current image (meta: don't confirm)
                     |[alt,cmd]+[1-6] - Quickfolder operations copy/move
                     |left/right - navigate folders
+                    |o - open Folder
                     |? - show this help
                     |
                     |Drop a folder or file onto the main window to open it!

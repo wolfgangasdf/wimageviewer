@@ -3,6 +3,7 @@ import com.drew.lang.GeoLocation
 import com.drew.metadata.exif.GpsDirectory
 import javafx.application.Platform
 import javafx.geometry.Insets
+import javafx.geometry.Pos
 import javafx.scene.control.OverrunStyle
 import javafx.scene.control.TextInputDialog
 import javafx.scene.image.Image
@@ -29,11 +30,11 @@ import kotlin.system.exitProcess
 
 private lateinit var logger: KLogger
 
-enum class QuickOperation {
-    COPY, MOVE
-}
+enum class QuickOperation { COPY, MOVE }
 
-class HelperWindows(private val mv: MainView) {
+enum class Zoom { IN, OUT, FIT}
+
+class InfoView(private val mv: MainView): View("Information") {
     private fun leafletHTML(geo: GeoLocation) = """
                             <!DOCTYPE html>
                             <html>
@@ -60,10 +61,11 @@ class HelperWindows(private val mv: MainView) {
                             </body>
                             </html>
                             """.trimIndent()
-    fun genInfos() = Form().apply {
-        background = Background(BackgroundFill(Color.YELLOW, CornerRadii.EMPTY, Insets.EMPTY))
-        fieldset("File info") {
-            if (mv.currentFile?.file?.exists() == true) {
+
+    override val root = scrollpane {
+        form {
+            background = Background(BackgroundFill(Color.YELLOW, CornerRadii.EMPTY, Insets.EMPTY))
+            fieldset("File info") {
                 mv.currentFile!!.readInfos()
                 field("Name") {
                     textarea(mv.currentFile!!.file.absolutePath) {
@@ -71,8 +73,6 @@ class HelperWindows(private val mv: MainView) {
                         prefHeight = 75.0
                         isWrapText = true
                         isEditable = false
-                        isFocusTraversable = false
-                        setOnKeyPressed { WImageViewer.mainstage.scene.onKeyPressed.handle(it) } // propagate keyevents
                     }
                 }
                 field("Size") {
@@ -83,12 +83,10 @@ class HelperWindows(private val mv: MainView) {
                         prefHeight = 150.0
                         text = mv.currentFile!!.tags
                         isEditable = false
-                        isFocusTraversable = false
                     }
                 }
                 mv.currentFile!!.geo?.also { geo ->
                     field("Location") {
-                        // background = Background(BackgroundFill(Color.GRAY, CornerRadii.EMPTY, Insets.EMPTY))
                         webview {
                             prefWidth = 350.0
                             prefHeight = 270.0
@@ -103,12 +101,13 @@ class HelperWindows(private val mv: MainView) {
                         }
                     }
                 }
-            } else {
-                label("File not found!")
+                maxWidth = 500.0
             }
         }
-        maxWidth = 500.0
     }
+}
+
+class HelperWindows(private val mv: MainView) {
 
     fun genQuickFolders(operation: QuickOperation) = HBox().apply {
         button(operation.toString()).apply {
@@ -198,23 +197,42 @@ class MyImage(val file: File) : Comparable<MyImage> {
 class MainView : UIComponent("WImageViewer") {
     private val helperWindows = HelperWindows(this)
     private val imageExtensions = listOf(".jpg", ".jpeg", ".png")
-
     val currentFiles = java.util.concurrent.ConcurrentSkipListSet<MyImage>()
     var currentFile: MyImage? = null
+    private var currentZoom: SDP = SDP(1.0)
     private val guiCurrentPath: SSP = SSP("")
-
-    private var pInfo: Form = form {}
     private var pQuickFolders: HBox = hbox {}
 
     val iv = imageview {
         isPreserveRatio = true
+
+    }
+
+    private val siv = scrollpane {
+        content = iv
+        content = stackpane { // to center content if smaller than window
+            children += iv
+            prefWidthProperty().bind(doubleBinding(this@scrollpane.viewportBoundsProperty()) { value.width })
+            prefHeightProperty().bind(doubleBinding(this@scrollpane.viewportBoundsProperty()) { value.height })
+            background = Background(BackgroundFill(Color.BLACK, CornerRadii.EMPTY, Insets.EMPTY))
+        }
+        style = "-fx-background: #000000;" // only way
+        styleClass += "edge-to-edge" // remove thin white border
     }
 
     private val statusBar = borderpane {
-        bottom = label(guiCurrentPath).apply {
+        bottom = hbox {
             background = Background(BackgroundFill(Color.GRAY, CornerRadii.EMPTY, Insets.EMPTY))
             prefHeight = 25.0
+            alignment = Pos.CENTER
+            label(guiCurrentPath).style { fontSize = 18.px }
+            spacer {
+                minWidth = 3.0
+                prefWidth = 10.0
+            }
+            label(currentZoom.asString("Zoom: %.1f")).style { fontSize = 18.px }
         }
+        isMouseTransparent = true
     }
 
     fun showFirst(showLast: Boolean = false) {
@@ -247,13 +265,8 @@ class MainView : UIComponent("WImageViewer") {
         }
     }
 
-    fun toggleInfo() {
-        if (root.children.contains(pInfo)) {
-            root.children.remove(pInfo)
-        } else {
-            pInfo = helperWindows.genInfos()
-            root.add(pInfo)
-        }
+    fun showInfo() {
+        InfoView(this).openWindow()
     }
 
     fun showQuickFolders(quickOperation: QuickOperation) {
@@ -308,20 +321,33 @@ class MainView : UIComponent("WImageViewer") {
     }
 
     override val root = stackpane {
-        background = Background(BackgroundFill(Color.BLACK, CornerRadii.EMPTY, Insets.EMPTY))
-        children += iv
+        children += siv
+    }
+
+    fun zoom(z: Zoom) {
+        iv.fitWidthProperty().unbind()
+        iv.fitHeightProperty().unbind()
+        when(z) {
+            Zoom.IN -> currentZoom.value += 0.5
+            Zoom.OUT -> currentZoom.value -= 0.5
+            Zoom.FIT -> currentZoom.value = 1.0
+        }
+        if (currentZoom.value <= 1.0) currentZoom.set(1.0)
+        iv.fitWidthProperty().bind(root.widthProperty() * currentZoom)
+        iv.fitHeightProperty().bind(root.heightProperty() * currentZoom)
     }
 
     init {
-        iv.fitWidthProperty().bind(root.widthProperty())
-        iv.fitHeightProperty().bind(root.heightProperty())
+        zoom(Zoom.FIT)
+        siv.prefWidthProperty().bind(root.widthProperty())
+        siv.prefHeightProperty().bind(root.heightProperty())
     }
 }
 
 class WImageViewer : App() {
 
     override fun start(stage: Stage) {
-        mainstage = stage
+        FX.setPrimaryStage(stage = stage)
         mv = MainView()
 
         if (Helpers.isMac()) {
@@ -363,94 +389,97 @@ class WImageViewer : App() {
         }
 
         stage.scene?.setOnKeyPressed {
-            if (it.text == "?") {
-                showHelp()
-            }
-            when (it.code) {
-                KeyCode.F -> stage.isFullScreen = !stage.isFullScreen
-                KeyCode.DOWN, KeyCode.SPACE -> mv.showNext()
-                KeyCode.UP -> mv.showPrev()
-                KeyCode.HOME -> mv.showFirst()
-                KeyCode.END -> mv.showFirst(true)
-                KeyCode.LEFT -> mv.currentFile?.file?.parentFile?.parentFile?.also { pf -> mv.setFolderFile(pf) }
-                KeyCode.RIGHT -> if (mv.currentFile?.file?.isDirectory == true) { mv.setFolderFile(mv.currentFile!!.file) }
-                KeyCode.I -> mv.toggleInfo()
-                KeyCode.B -> mv.toggleStatusBar()
-                KeyCode.R -> mv.iv.rotate = mv.iv.rotate + 90
-                KeyCode.O -> {
-                    chooseDirectory("Open folder", mv.currentFile?.file?.parentFile)?.also { f ->
-                        mv.setFolderFile(f)
-                    }
-                }
-                KeyCode.ALT -> mv.showQuickFolders(QuickOperation.COPY)
-                KeyCode.COMMAND -> mv.showQuickFolders(QuickOperation.MOVE)
-                KeyCode.CONTROL -> mv.showQuickFolders(QuickOperation.MOVE)
-                KeyCode.L -> if (mv.currentFile?.file?.exists() == true) Helpers.revealFile(mv.currentFile!!.file)
-                KeyCode.N -> {
-                    if (mv.currentFile?.file?.exists() == true) {
-                        TextInputDialog(mv.currentFile!!.file.name).showAndWait().ifPresent { s ->
-                            val p = mv.currentFile!!.file.toPath()
-                            val t = p.resolveSibling(s)
-                            logger.info("rename $p to $t")
-                            Files.move(p, t)
-                            mv.setFolderFile(t.toFile())
-                            showNotification("Moved\n$p\nto\n$t")
+            when (it.text) {
+                "?" -> showHelp()
+                "+" -> mv.zoom(Zoom.IN)
+                "-" -> mv.zoom(Zoom.OUT)
+                "=" -> mv.zoom(Zoom.FIT)
+                "d" -> LayoutDebugger.debug(FX.primaryStage.scene)
+                else -> when (it.code) {
+                    KeyCode.F -> stage.isFullScreen = !stage.isFullScreen
+                    KeyCode.DOWN, KeyCode.SPACE -> mv.showNext()
+                    KeyCode.UP -> mv.showPrev()
+                    KeyCode.HOME -> mv.showFirst()
+                    KeyCode.END -> mv.showFirst(true)
+                    KeyCode.LEFT -> mv.currentFile?.file?.parentFile?.parentFile?.also { pf -> mv.setFolderFile(pf) }
+                    KeyCode.RIGHT -> if (mv.currentFile?.file?.isDirectory == true) { mv.setFolderFile(mv.currentFile!!.file) }
+                    KeyCode.I -> mv.showInfo()
+                    KeyCode.B -> mv.toggleStatusBar()
+                    KeyCode.R -> mv.iv.rotate = mv.iv.rotate + 90
+                    KeyCode.O -> {
+                        chooseDirectory("Open folder", mv.currentFile?.file?.parentFile)?.also { f ->
+                            mv.setFolderFile(f)
                         }
                     }
-                }
-                KeyCode.BACK_SPACE -> {
-                    mv.currentFile?.also { source ->
-                        var doit = it.isMetaDown
-                        if (!doit) confirm("Confirm delete current file", source.file.absolutePath) { doit = true }
-                        if (doit) {
-                            val res = Helpers.trashOrDelete(source.file)
+                    KeyCode.ALT -> mv.showQuickFolders(QuickOperation.COPY)
+                    KeyCode.COMMAND -> mv.showQuickFolders(QuickOperation.MOVE)
+                    KeyCode.CONTROL -> mv.showQuickFolders(QuickOperation.MOVE)
+                    KeyCode.L -> if (mv.currentFile?.file?.exists() == true) Helpers.revealFile(mv.currentFile!!.file)
+                    KeyCode.N -> {
+                        if (mv.currentFile?.file?.exists() == true) {
+                            TextInputDialog(mv.currentFile!!.file.name).showAndWait().ifPresent { s ->
+                                val p = mv.currentFile!!.file.toPath()
+                                val t = p.resolveSibling(s)
+                                logger.info("rename $p to $t")
+                                Files.move(p, t)
+                                mv.setFolderFile(t.toFile())
+                                showNotification("Moved\n$p\nto\n$t")
+                            }
+                        }
+                    }
+                    KeyCode.BACK_SPACE -> {
+                        mv.currentFile?.also { source ->
+                            var doit = it.isMetaDown
+                            if (!doit) confirm("Confirm delete current file", source.file.absolutePath) { doit = true }
+                            if (doit) {
+                                val res = Helpers.trashOrDelete(source.file)
+                                mv.showNext()
+                                mv.currentFiles.remove(source)
+                                showNotification("$res \n$source")
+                            }
+                        }
+                    }
+                    in KeyCode.DIGIT1..KeyCode.DIGIT6 -> {
+                        val keynumber = it.code.ordinal - KeyCode.DIGIT1.ordinal + 1
+                        if (mv.currentFile == null) return@setOnKeyPressed
+                        val source = mv.currentFile!!
+                        if (!source.file.isFile) {
+                            showNotification("Current item is not a file")
+                            return@setOnKeyPressed
+                        }
+                        val target = File(Settings.settings.quickFolders[keynumber]!!)
+                        if (!target.isDirectory || !target.canWrite()) {
+                            showNotification("Target is not a folder or not writable:\n$target")
+                            return@setOnKeyPressed
+                        }
+                        val targetp = Paths.get(target.absolutePath, source.file.name)
+                        if (targetp.toFile().exists()) {
+                            showNotification("Target exists already:\n$targetp")
+                            return@setOnKeyPressed
+                        }
+                        if (!it.isControlDown && it.isAltDown && !it.isMetaDown) {
+                            logger.info("copy ${source.file.toPath()} to $targetp")
+                            Files.copy(source.file.toPath(), targetp, StandardCopyOption.COPY_ATTRIBUTES)
+                            showNotification("Copied\n$source\nto\n$targetp")
+                        } else if (!it.isAltDown && (it.isControlDown || it.isMetaDown)) {
+                            logger.info("move ${source.file.toPath()} to $targetp")
+                            Files.move(source.file.toPath(), targetp)
                             mv.showNext()
                             mv.currentFiles.remove(source)
-                            showNotification("$res \n$source")
+                            showNotification("Moved\n$source\nto\n$targetp")
                         }
                     }
-                }
-                in KeyCode.DIGIT1..KeyCode.DIGIT6 -> {
-                    val keynumber = it.code.ordinal - KeyCode.DIGIT1.ordinal + 1
-                    if (mv.currentFile == null) return@setOnKeyPressed
-                    val source = mv.currentFile!!
-                    if (!source.file.isFile) {
-                        showNotification("Current item is not a file")
-                        return@setOnKeyPressed
+                    else -> {
                     }
-                    val target = File(Settings.settings.quickFolders[keynumber]!!)
-                    if (!target.isDirectory || !target.canWrite()) {
-                        showNotification("Target is not a folder or not writable:\n$target")
-                        return@setOnKeyPressed
-                    }
-                    val targetp = Paths.get(target.absolutePath, source.file.name)
-                    if (targetp.toFile().exists()) {
-                        showNotification("Target exists already:\n$targetp")
-                        return@setOnKeyPressed
-                    }
-                    if (!it.isControlDown && it.isAltDown && !it.isMetaDown) {
-                        logger.info("copy ${source.file.toPath()} to $targetp")
-                        Files.copy(source.file.toPath(), targetp, StandardCopyOption.COPY_ATTRIBUTES)
-                        showNotification("Copied\n$source\nto\n$targetp")
-                    } else if (!it.isAltDown && (it.isControlDown || it.isMetaDown)) {
-                        logger.info("move ${source.file.toPath()} to $targetp")
-                        Files.move(source.file.toPath(), targetp)
-                        mv.showNext()
-                        mv.currentFiles.remove(source)
-                        showNotification("Moved\n$source\nto\n$targetp")
-                    }
-                }
-                else -> {
                 }
             }
-        }
+         }
 
         if (Settings.settings.lastImage != "") mv.setFolderFile(File(Settings.settings.lastImage))
 
     } // start
 
     companion object {
-        lateinit var mainstage: Stage
         lateinit var mv: MainView
         private var notificationTimeoutMs: Long = 0
         private var notificationLastMsg: String = ""
@@ -460,7 +489,7 @@ class WImageViewer : App() {
                 if (System.currentTimeMillis() > notificationTimeoutMs || notificationLastMsg != msg) { // avoid spam
                     notificationLastMsg = msg
                     notificationTimeoutMs = System.currentTimeMillis() + 2000
-                    Notifications.create().owner(mainstage).hideAfter(Duration(2000.0)).title(title).text(text).show()
+                    Notifications.create().owner(FX.primaryStage).hideAfter(Duration(2000.0)).title(title).text(text).show()
                 }
             }
         }
@@ -472,6 +501,7 @@ class WImageViewer : App() {
                     |down/up - next/prev
                     |home/end - first/last
                     |r - rotate
+                    |[+,-,=] - zoom in,out,fit
                     |n - rename
                     |l - reveal file in file browser
                     |backspace - trash/delete current image (meta: don't confirm)
@@ -481,7 +511,7 @@ class WImageViewer : App() {
                     |? - show this help
                     |
                     |Drop a folder or file onto the main window to open it!
-                """.trimMargin())
+                """.trimMargin(), owner = FX.primaryStage)
         }
     }
 }

@@ -2,6 +2,7 @@ import com.drew.imaging.ImageMetadataReader
 import com.drew.lang.GeoLocation
 import com.drew.metadata.exif.GpsDirectory
 import javafx.application.Platform
+import javafx.event.Event
 import javafx.geometry.Insets
 import javafx.geometry.Pos
 import javafx.scene.control.OverrunStyle
@@ -9,6 +10,7 @@ import javafx.scene.control.TextInputDialog
 import javafx.scene.image.Image
 import javafx.scene.image.WritableImage
 import javafx.scene.input.KeyCode
+import javafx.scene.input.KeyEvent
 import javafx.scene.input.TransferMode
 import javafx.scene.layout.*
 import javafx.scene.paint.Color
@@ -218,6 +220,10 @@ class MainView : UIComponent("WImageViewer") {
         }
         style = "-fx-background: #000000;" // only way
         styleClass += "edge-to-edge" // remove thin white border
+        addEventFilter(KeyEvent.ANY) { // disable cursor keys etc.
+            Event.fireEvent(FX.primaryStage.scene, it.copyFor(it.source, FX.primaryStage.scene))
+            it.consume()
+        }
     }
 
     private val statusBar = borderpane {

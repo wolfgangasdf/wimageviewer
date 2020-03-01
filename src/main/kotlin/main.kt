@@ -308,7 +308,9 @@ class MainView : UIComponent("WImageViewer") {
     }
 
     private fun updateFiles(folder: File) {
-        folder.listFiles()?.filter { f -> f.isDirectory || imageExtensions.any { f.name.endsWith(it) } }?.sorted()?.also {
+        folder.listFiles()?.filter {
+            f -> f.isDirectory || imageExtensions.any { f.name.toLowerCase().endsWith(it) }
+        }?.sorted()?.also {
             logger.debug("adding ${it.joinToString(", ")}")
             currentFiles.clear()
             it.forEach { f -> currentFiles.add(MyImage(f)) }
@@ -436,7 +438,7 @@ class WImageViewer : App() {
                     KeyCode.BACK_SPACE -> {
                         mv.currentFile?.also { source ->
                             var doit = it.isMetaDown
-                            if (!doit) confirm("Confirm delete current file", source.file.absolutePath) { doit = true }
+                            if (!doit) confirm("Confirm delete current file", source.file.absolutePath, owner = FX.primaryStage) { doit = true }
                             if (doit) {
                                 val res = Helpers.trashOrDelete(source.file)
                                 mv.showNext()

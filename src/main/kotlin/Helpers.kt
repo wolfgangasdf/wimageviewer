@@ -2,6 +2,7 @@
 import javafx.beans.property.SimpleDoubleProperty
 import javafx.beans.property.SimpleIntegerProperty
 import javafx.beans.property.SimpleStringProperty
+import mu.KotlinLogging
 import tornadofx.error
 import java.awt.Desktop
 import java.io.File
@@ -11,6 +12,8 @@ import java.nio.file.Files
 typealias SSP = SimpleStringProperty
 typealias SDP = SimpleDoubleProperty
 typealias SIP = SimpleIntegerProperty
+
+private val logger = KotlinLogging.logger {}
 
 object Helpers {
     fun isMac() = System.getProperty("os.name").toLowerCase().contains("mac")
@@ -26,7 +29,7 @@ object Helpers {
             isMac() -> Runtime.getRuntime().exec(arrayOf("open", if (gointo) "" else "-R", file.path))
             isWin() -> Runtime.getRuntime().exec("explorer.exe /select,${file.path}")
             isLinux() -> error("not supported OS, tell me how to do it!")
-            else -> error("not supported OS, tell me how to do it!")
+            else -> logger.error("not supported OS, tell me how to do it!")
         }
     }
 

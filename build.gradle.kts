@@ -4,7 +4,7 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import org.openjfx.gradle.JavaFXModule
 import org.openjfx.gradle.JavaFXOptions
 
-val kotlinversion = "1.3.61"
+val kotlinversion = "1.3.70"
 
 buildscript {
     repositories {
@@ -21,7 +21,7 @@ println("Current Java version: ${JavaVersion.current()}")
 if (JavaVersion.current().toString() != "13") throw GradleException("Use Java 13")
 
 plugins {
-    kotlin("jvm") version "1.3.61"
+    kotlin("jvm") version "1.3.70"
     id("idea")
     application
     id("org.openjfx.javafxplugin") version "0.0.8"
@@ -60,7 +60,7 @@ dependencies {
     implementation("io.github.microutils:kotlin-logging:1.7.8")
     implementation("org.slf4j:slf4j-simple:1.8.0-beta4") // no colors, everything stderr
     implementation("no.tornado:tornadofx:2.0.0-SNAPSHOT")
-    // implementation("io.methvin:directory-watcher:0.9.9")
+    implementation("io.methvin:directory-watcher:0.9.9")
     implementation("org.controlsfx:controlsfx:11.0.1")
     implementation("com.drewnoakes:metadata-extractor:2.13.0")
 

@@ -43,7 +43,7 @@ object Settings {
         settings.quickFolders.forEach { e -> props["qf.${e.key}"] = e.value }
         props["wiv.width"] = if (FX.primaryStage.isFullScreen) settings.width.toString() else FX.primaryStage.width.toString()
         props["wiv.height"] = if (FX.primaryStage.isFullScreen) settings.height.toString() else FX.primaryStage.height.toString()
-        props["wiv.lastimage"] = WImageViewer.mv.currentFile?.file?.absolutePath ?: ""
+        props["wiv.lastimage"] = WImageViewer.mv.il.currentImage.file?.absolutePath ?: ""
         StoreSettings.getSettingFile().parentFile.mkdirs()
         val fw = FileWriter(StoreSettings.getSettingFile())
         props.store(fw, null)

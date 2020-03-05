@@ -1,6 +1,8 @@
 import com.drew.imaging.ImageMetadataReader
 import com.drew.lang.GeoLocation
 import com.drew.metadata.exif.GpsDirectory
+import io.methvin.watcher.DirectoryChangeEvent
+import io.methvin.watcher.DirectoryWatcher
 import javafx.application.Platform
 import javafx.event.Event
 import javafx.geometry.Insets
@@ -26,6 +28,7 @@ import java.lang.management.ManagementFactory
 import java.nio.file.Files
 import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
+import java.util.concurrent.ConcurrentSkipListSet
 import javax.imageio.ImageIO
 import kotlin.system.exitProcess
 
@@ -68,9 +71,9 @@ class InfoView(private val mv: MainView): View("Information") {
         form {
             background = Background(BackgroundFill(Color.YELLOW, CornerRadii.EMPTY, Insets.EMPTY))
             fieldset("File info") {
-                mv.currentFile!!.readInfos()
+                mv.il.currentImage.readInfos()
                 field("Name") {
-                    textarea(mv.currentFile!!.file.absolutePath) {
+                    textarea(mv.il.currentImage.path) {
                         maxWidth = 400.0
                         prefHeight = 75.0
                         isWrapText = true
@@ -78,16 +81,16 @@ class InfoView(private val mv: MainView): View("Information") {
                     }
                 }
                 field("Size") {
-                    label(mv.currentFile!!.file.length().toString())
+                    label(mv.il.currentImage.size.toString())
                 }
                 field("Tags") {
                     textarea {
                         prefHeight = 150.0
-                        text = mv.currentFile!!.tags
+                        text = mv.il.currentImage.tags
                         isEditable = false
                     }
                 }
-                mv.currentFile!!.geo?.also { geo ->
+                mv.il.currentImage.geo?.also { geo ->
                     field("Location") {
                         webview {
                             prefWidth = 350.0
@@ -160,12 +163,131 @@ class HelperWindows(private val mv: MainView) {
 
 }
 
-class MyImage(val file: File) : Comparable<MyImage> {
+// this holds the dir and also updates UI.
+class MyImageList(private val mv: MainView) {
+    private val currentImages: ConcurrentSkipListSet<MyImage> = ConcurrentSkipListSet<MyImage>()
+    var currentImage: MyImage = MyImage(null)
+    private val imageExtensions = listOf(".jpg", ".jpeg", ".png")
+    private var dw: DirectoryWatcher? = null
+
+    fun removeCurrent() {
+        val oldi = currentImage
+        showNext()
+        currentImages.remove(oldi)
+    }
+
+
+    fun showFirst(showLast: Boolean = false) {
+        logger.debug("show first")
+        if (currentImages.size > 0) {
+            currentImage = currentImages.elementAt(if (showLast) currentImages.size - 1 else 0)
+            showCurrentImage()
+            WImageViewer.showNotification("Showing ${if (showLast) "last" else "first"} image!")
+        } else {
+            WImageViewer.showNotification("No images!")
+        }
+    }
+
+    fun showNext() { // if at last file, show the one before the current file
+        logger.debug("show next")
+        val oldidx = currentImages.indexOf(currentImage)
+        when {
+            oldidx == -1 -> showFirst()
+            oldidx < currentImages.size - 1 -> {
+                currentImage = currentImages.elementAt(oldidx + 1)
+                showCurrentImage()
+            }
+            else -> WImageViewer.showNotification("No next image!")
+        }
+    }
+
+    fun showPrev() {
+        logger.debug("show prev")
+        val oldidx = currentImages.indexOf(currentImage)
+        when {
+            oldidx == -1 -> showFirst()
+            oldidx > 0 -> {
+                currentImage = currentImages.elementAt(oldidx - 1)
+                showCurrentImage()
+            }
+            else -> WImageViewer.showNotification("No previous image!")
+        }
+    }
+
+    // this updates also all gui properties.
+    private fun showCurrentImage() {
+        mv.guiCurrentPath.set(currentImage.toString())
+        mv.iv.image = null
+        mv.iv.image = currentImage.image
+    }
+
+    // watches one directory, stops watching the first one before.
+    private fun watchdir(folder: File) {
+        dw?.also {
+            logger.info("dirwatcher: stopping old watcher $it")
+            it.close()
+        }
+        logger.info("dirwatcher: watching $folder")
+        dw = DirectoryWatcher.builder().path(folder.toPath()).listener { dce ->
+            logger.debug("dirwatcher($folder) event: $dce ${dce.path()}")
+            WImageViewer.showNotification("dirwatcher: ${dce.eventType()} ${dce.path()}")
+            when(dce.eventType()) {
+                DirectoryChangeEvent.EventType.CREATE -> runLater {
+                    updateFiles(folder, currentImage.file)
+                }
+                DirectoryChangeEvent.EventType.MODIFY -> runLater {
+                    updateFiles(folder, currentImage.file)
+                }
+                DirectoryChangeEvent.EventType.DELETE -> runLater {
+                    if (dce.path().toFile().path == currentImage.file?.path)
+                        showNext()
+                    updateFiles(folder, currentImage.file)
+                }
+                DirectoryChangeEvent.EventType.OVERFLOW -> logger.info("dirwatcher overflow!")
+                else -> {}
+            }
+        }.fileHashing(false).build()
+        dw?.watchAsync()
+    }
+
+    private fun updateFiles(folder: File, setCurrent: File? = null) {
+        currentImage = MyImage(null) // TODO for directorywatcher should not be done...
+        folder.listFiles()?.filter {
+            f -> f.isDirectory || imageExtensions.any { f.name.toLowerCase().endsWith(it) }
+        }?.sorted()?.also {
+            logger.debug("adding ${it.joinToString(", ")}")
+            currentImages.clear()
+            it.forEach { f ->
+                val img = MyImage(f)
+                if (f.absolutePath == setCurrent?.absolutePath) currentImage = img
+                currentImages.add(img)
+            }
+        }
+        WImageViewer.showNotification("Loaded files in $folder")
+        watchdir(folder)
+    }
+
+    fun setFolderFile(f: File) {
+        if (f.isDirectory) {
+            updateFiles(f)
+        } else {
+            updateFiles(f.parentFile, f)
+        }
+        showCurrentImage()
+    }
+}
+
+class MyImage(val file: File?) : Comparable<MyImage> {
     var tags: String = ""
     var geo: GeoLocation? = null
+    val path: String get() = file?.absolutePath?:"no file"
+    val size: Long get() = file?.length()?:0
+    val exists: Boolean get() = file?.exists() == true
     val image: Image
         get() {
-            return if (!file.exists()) {
+            return if (file == null) {
+                textToImage("no image")!!
+            } else if (!file.exists()) {
                 textToImage("file doesn't exist")!!
             } else if (file.isDirectory) {
                 textToImage(file.absolutePath)!!
@@ -181,33 +303,35 @@ class MyImage(val file: File) : Comparable<MyImage> {
     }
 
     fun readInfos() {
-        val metadata = ImageMetadataReader.readMetadata(file)
-        tags = ""
-        tags += "$metadata\nTags:\n"
-        metadata.directories.forEach { directory ->
-            directory.tags.forEach { tags += it.toString() + "\n" }
+        if (file != null) {
+            val metadata = ImageMetadataReader.readMetadata(file)
+            tags = ""
+            tags += "$metadata\nTags:\n"
+            metadata.directories.forEach { directory ->
+                directory.tags.forEach { tags += it.toString() + "\n" }
+            }
+            val gpsDirectory: GpsDirectory? = metadata.getFirstDirectoryOfType(GpsDirectory::class.java)
+            geo = gpsDirectory?.geoLocation
+            geo?.also { tags += "\ngeo: ${it.toDMSString()}" }
+        } else {
+            geo = null
+            tags = ""
         }
-        val gpsDirectory: GpsDirectory? = metadata.getFirstDirectoryOfType(GpsDirectory::class.java)
-        geo = gpsDirectory?.geoLocation
-        geo?.also { tags += "\ngeo: ${it.toDMSString()}" }
     }
 
-    override fun toString(): String = file.absolutePath
-    override fun compareTo(other: MyImage) = this.file.compareTo(other.file)
+    override fun toString(): String = path
+    override fun compareTo(other: MyImage) = if (file == null || other.file == null) -1 else this.file.compareTo(other.file)
 }
 
 class MainView : UIComponent("WImageViewer") {
+    val il = MyImageList(this)
     private val helperWindows = HelperWindows(this)
-    private val imageExtensions = listOf(".jpg", ".jpeg", ".png")
-    val currentFiles = java.util.concurrent.ConcurrentSkipListSet<MyImage>()
-    var currentFile: MyImage? = null
     private var currentZoom: SDP = SDP(1.0)
-    private val guiCurrentPath: SSP = SSP("")
+    val guiCurrentPath: SSP = SSP("")
     private var pQuickFolders: HBox = hbox {}
 
     val iv = imageview {
         isPreserveRatio = true
-
     }
 
     private val siv = scrollpane {
@@ -241,36 +365,6 @@ class MainView : UIComponent("WImageViewer") {
         isMouseTransparent = true
     }
 
-    fun showFirst(showLast: Boolean = false) {
-        logger.debug("show first")
-        if (currentFiles.size > 0) {
-            showImage(currentFiles.elementAt(if (showLast) currentFiles.size - 1 else 0))
-            WImageViewer.showNotification("Showing ${if (showLast) "last" else "first"} image!")
-        } else {
-            WImageViewer.showNotification("No images!")
-        }
-    }
-
-    fun showNext() { // if at last file, show the one before the current file
-        logger.debug("show next")
-        val oldidx = currentFiles.indexOf(currentFile)
-        when {
-            oldidx == -1 -> showFirst()
-            oldidx < currentFiles.size - 1 -> showImage(currentFiles.elementAt(oldidx + 1))
-            else -> WImageViewer.showNotification("No next image!")
-        }
-    }
-
-    fun showPrev() {
-        logger.debug("show prev")
-        val oldidx = currentFiles.indexOf(currentFile)
-        when {
-            oldidx == -1 -> showFirst()
-            oldidx > 0 -> showImage(currentFiles.elementAt(oldidx - 1))
-            else -> WImageViewer.showNotification("No previous image!")
-        }
-    }
-
     fun showInfo() {
         InfoView(this).openWindow()
     }
@@ -291,40 +385,6 @@ class MainView : UIComponent("WImageViewer") {
             root.children.remove(statusBar)
         else {
             root.add(statusBar)
-        }
-    }
-
-    // this updates also all gui properties.
-    private fun showImage(img: MyImage?) {
-        currentFile = img
-        if (img == null) {
-            currentFile = null
-            guiCurrentPath.set("<no file>")
-            return
-        }
-        guiCurrentPath.set(img.toString())
-        iv.image = null
-        iv.image = img.image
-    }
-
-    private fun updateFiles(folder: File) {
-        folder.listFiles()?.filter {
-            f -> f.isDirectory || imageExtensions.any { f.name.toLowerCase().endsWith(it) }
-        }?.sorted()?.also {
-            logger.debug("adding ${it.joinToString(", ")}")
-            currentFiles.clear()
-            it.forEach { f -> currentFiles.add(MyImage(f)) }
-        }
-        WImageViewer.showNotification("Loaded files in $folder")
-    }
-
-    fun setFolderFile(f: File) {
-        if (f.isDirectory) {
-            updateFiles(f)
-            showImage(currentFiles.firstOrNull())
-        } else {
-            updateFiles(f.parentFile)
-            showImage(currentFiles.find { it.file == f } ?: currentFiles.firstOrNull())
         }
     }
 
@@ -391,7 +451,7 @@ class WImageViewer : App() {
         stage.scene?.setOnDragDropped {
             if (it.dragboard.hasFiles()) {
                 it.dragboard.files.firstOrNull()?.also { f ->
-                    mv.setFolderFile(f)
+                    mv.il.setFolderFile(f)
                 }
             }
         }
@@ -405,53 +465,51 @@ class WImageViewer : App() {
                 "d" -> LayoutDebugger.debug(FX.primaryStage.scene)
                 else -> when (it.code) {
                     KeyCode.F -> stage.isFullScreen = !stage.isFullScreen
-                    KeyCode.DOWN, KeyCode.SPACE -> mv.showNext()
-                    KeyCode.UP -> mv.showPrev()
-                    KeyCode.HOME -> mv.showFirst()
-                    KeyCode.END -> mv.showFirst(true)
-                    KeyCode.LEFT -> mv.currentFile?.file?.parentFile?.parentFile?.also { pf -> mv.setFolderFile(pf) }
-                    KeyCode.RIGHT -> if (mv.currentFile?.file?.isDirectory == true) { mv.setFolderFile(mv.currentFile!!.file) }
+                    KeyCode.DOWN, KeyCode.SPACE -> mv.il.showNext()
+                    KeyCode.UP -> mv.il.showPrev()
+                    KeyCode.HOME -> mv.il.showFirst()
+                    KeyCode.END -> mv.il.showFirst(true)
+                    KeyCode.LEFT -> mv.il.currentImage.file?.parentFile?.parentFile?.also { pf -> mv.il.setFolderFile(pf) }
+                    KeyCode.RIGHT -> if (mv.il.currentImage.file?.isDirectory == true) { mv.il.setFolderFile(mv.il.currentImage.file!!) }
                     KeyCode.I -> mv.showInfo()
                     KeyCode.B -> mv.toggleStatusBar()
                     KeyCode.R -> mv.iv.rotate = mv.iv.rotate + 90
                     KeyCode.O -> {
-                        chooseDirectory("Open folder", mv.currentFile?.file?.parentFile)?.also { f ->
-                            mv.setFolderFile(f)
+                        chooseDirectory("Open folder", mv.il.currentImage.file?.parentFile)?.also { f ->
+                            mv.il.setFolderFile(f)
                         }
                     }
                     KeyCode.ALT -> mv.showQuickFolders(QuickOperation.COPY)
                     KeyCode.COMMAND -> mv.showQuickFolders(QuickOperation.MOVE)
                     KeyCode.CONTROL -> mv.showQuickFolders(QuickOperation.MOVE)
-                    KeyCode.L -> if (mv.currentFile?.file?.exists() == true) Helpers.revealFile(mv.currentFile!!.file)
+                    KeyCode.L -> if (mv.il.currentImage.file?.exists() == true) Helpers.revealFile(mv.il.currentImage.file!!)
                     KeyCode.N -> {
-                        if (mv.currentFile?.file?.exists() == true) {
-                            TextInputDialog(mv.currentFile!!.file.name).showAndWait().ifPresent { s ->
-                                val p = mv.currentFile!!.file.toPath()
+                        if (mv.il.currentImage.file?.exists() == true) {
+                            TextInputDialog(mv.il.currentImage.file!!.name).showAndWait().ifPresent { s ->
+                                val p = mv.il.currentImage.file!!.toPath()
                                 val t = p.resolveSibling(s)
                                 logger.info("rename $p to $t")
                                 Files.move(p, t)
-                                mv.setFolderFile(t.toFile())
+                                mv.il.setFolderFile(t.toFile())
                                 showNotification("Moved\n$p\nto\n$t")
                             }
                         }
                     }
                     KeyCode.BACK_SPACE -> {
-                        mv.currentFile?.also { source ->
+                        if (mv.il.currentImage.exists) {
                             var doit = it.isMetaDown
-                            if (!doit) confirm("Confirm delete current file", source.file.absolutePath, owner = FX.primaryStage) { doit = true }
+                            if (!doit) confirm("Confirm delete current file", mv.il.currentImage.path, owner = FX.primaryStage) { doit = true }
                             if (doit) {
-                                val res = Helpers.trashOrDelete(source.file)
-                                mv.showNext()
-                                mv.currentFiles.remove(source)
-                                showNotification("$res \n$source")
+                                val res = Helpers.trashOrDelete(mv.il.currentImage.file!!) + " ${mv.il.currentImage}"
+                                mv.il.removeCurrent()
+                                showNotification(res)
                             }
                         }
                     }
                     in KeyCode.DIGIT1..KeyCode.DIGIT6 -> {
                         val keynumber = it.code.ordinal - KeyCode.DIGIT1.ordinal + 1
-                        if (mv.currentFile == null) return@setOnKeyPressed
-                        val source = mv.currentFile!!
-                        if (!source.file.isFile) {
+                        val source = mv.il.currentImage
+                        if (source.file?.isFile != true) {
                             showNotification("Current item is not a file")
                             return@setOnKeyPressed
                         }
@@ -472,8 +530,7 @@ class WImageViewer : App() {
                         } else if (!it.isAltDown && (it.isControlDown || it.isMetaDown)) {
                             logger.info("move ${source.file.toPath()} to $targetp")
                             Files.move(source.file.toPath(), targetp)
-                            mv.showNext()
-                            mv.currentFiles.remove(source)
+                            mv.il.removeCurrent()
                             showNotification("Moved\n$source\nto\n$targetp")
                         }
                     }
@@ -483,7 +540,7 @@ class WImageViewer : App() {
             }
          }
 
-        if (Settings.settings.lastImage != "") mv.setFolderFile(File(Settings.settings.lastImage))
+        if (Settings.settings.lastImage != "") mv.il.setFolderFile(File(Settings.settings.lastImage))
 
     } // start
 

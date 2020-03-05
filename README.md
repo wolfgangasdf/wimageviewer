@@ -47,6 +47,7 @@ Packaging:
 * [Metadata extractor](https://github.com/drewnoakes/metadata-extractor) to extract image tags and geolocation
 * [controlsfx](https://github.com/controlsfx/controlsfx) for notifications
 * [leafletjs](https://leafletjs.com/) for maps
+* [Directory-watcher](https://github.com/gmethvin/directory-watcher) to watch local files for changes
 
 ### License ###
 [MIT](http://opensource.org/licenses/MIT)

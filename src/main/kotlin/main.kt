@@ -160,7 +160,6 @@ class HelperWindows(private val mv: MainView) {
             }
         }
     }
-
 }
 
 // this holds the dir and also updates UI.
@@ -170,12 +169,22 @@ class MyImageList(private val mv: MainView) {
     private val imageExtensions = listOf(".jpg", ".jpeg", ".png")
     private var dw: DirectoryWatcher? = null
 
-    fun removeCurrent() {
-        val oldi = currentImage
-        showNext()
-        currentImages.remove(oldi)
+    private fun removeCurrent() {
+        logger.debug("remove current")
+        val oldidx = currentImages.indexOf(currentImage)
+        currentImages.remove(currentImage)
+        when {
+            oldidx > 0 && oldidx == currentImages.size -> { // was last
+                currentImage = currentImages.elementAt(oldidx - 1) // is prev
+                showCurrentImage()
+            }
+            oldidx > -1 && oldidx <= currentImages.size - 1 -> {
+                currentImage = currentImages.elementAt(oldidx) // is next
+                showCurrentImage()
+            }
+            else -> showFirst()
+        }
     }
-
 
     fun showFirst(showLast: Boolean = false) {
         logger.debug("show first")
@@ -229,8 +238,9 @@ class MyImageList(private val mv: MainView) {
         }
         logger.info("dirwatcher: watching $folder")
         dw = DirectoryWatcher.builder().path(folder.toPath()).listener { dce ->
-            logger.debug("dirwatcher($folder) event: $dce ${dce.path()}")
-            WImageViewer.showNotification("dirwatcher: ${dce.eventType()} ${dce.path()}")
+            logger.info("dirwatcher($folder) event: $dce ${dce.path()}")
+            // WImageViewer.showNotification("dirwatcher: ${dce.eventType()} ${dce.path()}")
+            WImageViewer.showNotification("Folder changed!")
             when(dce.eventType()) {
                 DirectoryChangeEvent.EventType.CREATE -> runLater {
                     updateFiles(folder, currentImage.file)
@@ -240,10 +250,14 @@ class MyImageList(private val mv: MainView) {
                 }
                 DirectoryChangeEvent.EventType.DELETE -> runLater {
                     if (dce.path().toFile().path == currentImage.file?.path)
-                        showNext()
+                        removeCurrent()
+                    else
+                        updateFiles(folder, currentImage.file)
+                }
+                DirectoryChangeEvent.EventType.OVERFLOW -> {
+                    logger.error("dirwatcher overflow!")
                     updateFiles(folder, currentImage.file)
                 }
-                DirectoryChangeEvent.EventType.OVERFLOW -> logger.info("dirwatcher overflow!")
                 else -> {}
             }
         }.fileHashing(false).build()
@@ -251,7 +265,7 @@ class MyImageList(private val mv: MainView) {
     }
 
     private fun updateFiles(folder: File, setCurrent: File? = null) {
-        currentImage = MyImage(null) // TODO for directorywatcher should not be done...
+        currentImage = MyImage(null)
         folder.listFiles()?.filter {
             f -> f.isDirectory || imageExtensions.any { f.name.toLowerCase().endsWith(it) }
         }?.sorted()?.also {
@@ -456,6 +470,7 @@ class WImageViewer : App() {
             }
         }
 
+        // just change files here, directorywatcher catches changes!
         stage.scene?.setOnKeyPressed {
             when (it.text) {
                 "?" -> showHelp()
@@ -490,7 +505,6 @@ class WImageViewer : App() {
                                 val t = p.resolveSibling(s)
                                 logger.info("rename $p to $t")
                                 Files.move(p, t)
-                                mv.il.setFolderFile(t.toFile())
                                 showNotification("Moved\n$p\nto\n$t")
                             }
                         }
@@ -501,7 +515,6 @@ class WImageViewer : App() {
                             if (!doit) confirm("Confirm delete current file", mv.il.currentImage.path, owner = FX.primaryStage) { doit = true }
                             if (doit) {
                                 val res = Helpers.trashOrDelete(mv.il.currentImage.file!!) + " ${mv.il.currentImage}"
-                                mv.il.removeCurrent()
                                 showNotification(res)
                             }
                         }
@@ -530,7 +543,6 @@ class WImageViewer : App() {
                         } else if (!it.isAltDown && (it.isControlDown || it.isMetaDown)) {
                             logger.info("move ${source.file.toPath()} to $targetp")
                             Files.move(source.file.toPath(), targetp)
-                            mv.il.removeCurrent()
                             showNotification("Moved\n$source\nto\n$targetp")
                         }
                     }

@@ -17,6 +17,7 @@ import javafx.scene.input.TransferMode
 import javafx.scene.layout.*
 import javafx.scene.paint.Color
 import javafx.scene.text.Text
+import javafx.stage.Modality
 import javafx.stage.Stage
 import javafx.util.Duration
 import mu.KLogger
@@ -30,6 +31,7 @@ import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
 import java.util.concurrent.ConcurrentSkipListSet
 import javax.imageio.ImageIO
+import kotlin.math.min
 import kotlin.system.exitProcess
 
 
@@ -228,6 +230,7 @@ class MyImageList(private val mv: MainView) {
         mv.guiCurrentPath.set(currentImage.toString())
         mv.iv.image = null
         mv.iv.image = currentImage.image
+        mv.updateImageSize()
     }
 
     // watches one directory, stops watching the first one before.
@@ -287,7 +290,7 @@ class MyImageList(private val mv: MainView) {
         } else {
             updateFiles(f.parentFile, f)
         }
-        showCurrentImage()
+        if (currentImage.file == null) showFirst() else showCurrentImage()
     }
 }
 
@@ -337,31 +340,56 @@ class MyImage(val file: File?) : Comparable<MyImage> {
     override fun compareTo(other: MyImage) = if (file == null || other.file == null) -1 else this.file.compareTo(other.file)
 }
 
+// https://stackoverflow.com/a/53308535
+class RotatablePane(private val child: Pane) : Region() {
+    override fun layoutChildren() {
+        if (child.rotate % 180.0 == 0.0) {
+            child.resize(width, height)
+            child.relocate(0.0, 0.0)
+        } else {
+            child.resize(height, width)
+            val delta = (width - height) / 2
+            child.relocate(delta, -delta)
+        }
+    }
+
+    init {
+        id = "RotatablePaneLayouter"
+        children.add(child)
+    }
+}
+
 class MainView : UIComponent("WImageViewer") {
     val il = MyImageList(this)
     private val helperWindows = HelperWindows(this)
     private var currentZoom: SDP = SDP(1.0)
     val guiCurrentPath: SSP = SSP("")
     private var pQuickFolders: HBox = hbox {}
+    private var angle = 0
 
     val iv = imageview {
         isPreserveRatio = true
     }
 
-    private val siv = scrollpane {
-        content = iv
-        content = stackpane { // to center content if smaller than window
-            children += iv
-            prefWidthProperty().bind(doubleBinding(this@scrollpane.viewportBoundsProperty()) { value.width })
-            prefHeightProperty().bind(doubleBinding(this@scrollpane.viewportBoundsProperty()) { value.height })
-            background = Background(BackgroundFill(Color.BLACK, CornerRadii.EMPTY, Insets.EMPTY))
-        }
+    private val stackPaneImage: StackPane = stackpane { // stackpane in order to center content if smaller than window
+        id = "stackPaneImage"
+        children += iv
+        background = Background(BackgroundFill(Color.BLACK, CornerRadii.EMPTY, Insets.EMPTY))
+    }
+
+    private val rotablePane = RotatablePane(stackPaneImage)
+
+    private val scrollPane = scrollpane {
+        id = "scrollPane"
+        content = rotablePane
         style = "-fx-background: #000000;" // only way
         styleClass += "edge-to-edge" // remove thin white border
         addEventFilter(KeyEvent.ANY) { // disable cursor keys etc.
             Event.fireEvent(FX.primaryStage.scene, it.copyFor(it.source, FX.primaryStage.scene))
             it.consume()
         }
+        isFitToWidth = true
+        isFitToHeight = true
     }
 
     private val statusBar = borderpane {
@@ -402,27 +430,47 @@ class MainView : UIComponent("WImageViewer") {
         }
     }
 
-    override val root = stackpane {
-        children += siv
+    override val root: StackPane = stackpane {
+        id = "MainView.root"
+        children += scrollPane
     }
 
-    fun zoom(z: Zoom) {
-        iv.fitWidthProperty().unbind()
-        iv.fitHeightProperty().unbind()
+    fun updateImageSize(z: Zoom? = null, relangle: Int = 0) {
+        logger.debug("updateImageSize $z $relangle")
         when(z) {
             Zoom.IN -> currentZoom.value += 0.5
             Zoom.OUT -> currentZoom.value -= 0.5
             Zoom.FIT -> currentZoom.value = 1.0
         }
         if (currentZoom.value <= 1.0) currentZoom.set(1.0)
-        iv.fitWidthProperty().bind(root.widthProperty() * currentZoom)
-        iv.fitHeightProperty().bind(root.heightProperty() * currentZoom)
+
+        angle += relangle % 360
+        stackPaneImage.rotate = angle.toDouble()
+
+        if (iv.image != null) { // this is most simple way due to bugs in rotated ImageView
+            val availw = root.width * currentZoom.value
+            val availh = root.height * currentZoom.value
+
+            val imgw = if (angle % 180 == 0) iv.image.width else iv.image.height
+            val imgh = if (angle % 180 != 0) iv.image.width else iv.image.height
+
+            val factw = availw / imgw
+            val facth = availh / imgh
+            val factres = min(factw, facth)
+            val resw = imgw * factres
+            val resh = imgh * factres
+
+            iv.fitWidth = if (angle % 180 == 0) resw else resh
+            iv.fitHeight = if (angle % 180 != 0) resw else resh
+
+            rotablePane.minWidth = resw // essential to make scrollbars appear
+            rotablePane.minHeight = resh
+        }
     }
 
     init {
-        zoom(Zoom.FIT)
-        siv.prefWidthProperty().bind(root.widthProperty())
-        siv.prefHeightProperty().bind(root.heightProperty())
+        root.heightProperty().onChange { updateImageSize() }
+        root.widthProperty().onChange { updateImageSize() }
     }
 }
 
@@ -474,41 +522,48 @@ class WImageViewer : App() {
         stage.scene?.setOnKeyPressed {
             when (it.text) {
                 "?" -> showHelp()
-                "+" -> mv.zoom(Zoom.IN)
-                "-" -> mv.zoom(Zoom.OUT)
-                "=" -> mv.zoom(Zoom.FIT)
-                "d" -> LayoutDebugger.debug(FX.primaryStage.scene)
+                "+" -> mv.updateImageSize(Zoom.IN)
+                "-" -> mv.updateImageSize(Zoom.OUT)
+                "=" -> mv.updateImageSize(Zoom.FIT)
+                "d" -> LayoutDebugger().apply {
+                    debuggingScene = FX.primaryStage.scene
+                    openModal(modality = Modality.NONE)
+                    nodeTree.root.expandAll()
+                }
+                "f" -> stage.isFullScreen = !stage.isFullScreen
+                "i" -> mv.showInfo()
+                "b" -> mv.toggleStatusBar()
+                "r" -> mv.updateImageSize(relangle = 90)
+                "o" -> {
+                    chooseDirectory("Open folder", mv.il.currentImage.file?.parentFile)?.also { f ->
+                        mv.il.setFolderFile(f)
+                    }
+                }
+                "l" -> if (mv.il.currentImage.file?.exists() == true) Helpers.revealFile(mv.il.currentImage.file!!)
+                "n" -> {
+                    if (mv.il.currentImage.file?.exists() == true) {
+                        TextInputDialog(mv.il.currentImage.file!!.name).apply {
+                            title = "Rename file"
+                            headerText = "Enter new filename:"
+                        }.showAndWait().ifPresent { s ->
+                            val p = mv.il.currentImage.file!!.toPath()
+                            val t = p.resolveSibling(s)
+                            logger.info("rename $p to $t")
+                            Files.move(p, t)
+                            showNotification("Moved\n$p\nto\n$t")
+                        }
+                    }
+                }
                 else -> when (it.code) {
-                    KeyCode.F -> stage.isFullScreen = !stage.isFullScreen
                     KeyCode.DOWN, KeyCode.SPACE -> mv.il.showNext()
                     KeyCode.UP -> mv.il.showPrev()
                     KeyCode.HOME -> mv.il.showFirst()
                     KeyCode.END -> mv.il.showFirst(true)
                     KeyCode.LEFT -> mv.il.currentImage.file?.parentFile?.parentFile?.also { pf -> mv.il.setFolderFile(pf) }
                     KeyCode.RIGHT -> if (mv.il.currentImage.file?.isDirectory == true) { mv.il.setFolderFile(mv.il.currentImage.file!!) }
-                    KeyCode.I -> mv.showInfo()
-                    KeyCode.B -> mv.toggleStatusBar()
-                    KeyCode.R -> mv.iv.rotate = mv.iv.rotate + 90
-                    KeyCode.O -> {
-                        chooseDirectory("Open folder", mv.il.currentImage.file?.parentFile)?.also { f ->
-                            mv.il.setFolderFile(f)
-                        }
-                    }
                     KeyCode.ALT -> mv.showQuickFolders(QuickOperation.COPY)
                     KeyCode.COMMAND -> mv.showQuickFolders(QuickOperation.MOVE)
                     KeyCode.CONTROL -> mv.showQuickFolders(QuickOperation.MOVE)
-                    KeyCode.L -> if (mv.il.currentImage.file?.exists() == true) Helpers.revealFile(mv.il.currentImage.file!!)
-                    KeyCode.N -> {
-                        if (mv.il.currentImage.file?.exists() == true) {
-                            TextInputDialog(mv.il.currentImage.file!!.name).showAndWait().ifPresent { s ->
-                                val p = mv.il.currentImage.file!!.toPath()
-                                val t = p.resolveSibling(s)
-                                logger.info("rename $p to $t")
-                                Files.move(p, t)
-                                showNotification("Moved\n$p\nto\n$t")
-                            }
-                        }
-                    }
                     KeyCode.BACK_SPACE -> {
                         if (mv.il.currentImage.exists) {
                             var doit = it.isMetaDown
@@ -553,6 +608,7 @@ class WImageViewer : App() {
          }
 
         if (Settings.settings.lastImage != "") mv.il.setFolderFile(File(Settings.settings.lastImage))
+        mv.updateImageSize(Zoom.FIT)
 
     } // start
 

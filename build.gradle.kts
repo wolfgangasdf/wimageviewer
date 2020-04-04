@@ -5,6 +5,12 @@ import org.openjfx.gradle.JavaFXModule
 import org.openjfx.gradle.JavaFXOptions
 
 val kotlinversion = "1.3.70"
+group = "com.wolle.wimageviewer"
+version = "1.0-SNAPSHOT"
+val cPlatforms = listOf("mac") // compile for these platforms. "mac", "linux", "win"
+
+println("Current Java version: ${JavaVersion.current()}")
+if (JavaVersion.current().majorVersion.toInt() < 14) throw GradleException("Use Java >= 14")
 
 buildscript {
     repositories {
@@ -12,13 +18,6 @@ buildscript {
         jcenter()
     }
 }
-
-group = "com.wolle.wimageviewer"
-version = "1.0-SNAPSHOT"
-val cPlatforms = listOf("mac") // compile for these platforms. "mac", "linux", "win"
-
-println("Current Java version: ${JavaVersion.current()}")
-if (JavaVersion.current().toString() != "13") throw GradleException("Use Java 13")
 
 plugins {
     kotlin("jvm") version "1.3.70"
@@ -128,7 +127,7 @@ open class CrossPackage : DefaultTask() {
                           <key>CFBundleIconFile</key>
                           <string>$execfilename.icns</string>
                           <key>CFBundleIdentifier</key>
-                          <string>main</string>
+                          <string>${project.group}</string>
                           <key>CFBundleInfoDictionaryVersion</key>
                           <string>6.0</string>
                           <key>CFBundleName</key>

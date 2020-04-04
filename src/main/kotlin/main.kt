@@ -25,6 +25,10 @@ import mu.KotlinLogging
 import org.controlsfx.control.Notifications
 import tornadofx.*
 import java.io.File
+import java.io.FileOutputStream
+import java.io.OutputStream
+import java.io.PrintStream
+import java.lang.Exception
 import java.lang.management.ManagementFactory
 import java.nio.file.Files
 import java.nio.file.Paths
@@ -227,6 +231,7 @@ class MyImageList(private val mv: MainView) {
 
     // this updates also all gui properties.
     private fun showCurrentImage() {
+        logger.info("showCurrentImage: $currentImage")
         mv.guiCurrentPath.set(currentImage.toString())
         mv.iv.image = null
         mv.iv.image = currentImage.image
@@ -240,34 +245,42 @@ class MyImageList(private val mv: MainView) {
             it.close()
         }
         logger.info("dirwatcher: watching $folder")
-        dw = DirectoryWatcher.builder().path(folder.toPath()).listener { dce ->
-            logger.info("dirwatcher($folder) event: $dce ${dce.path()}")
-            // WImageViewer.showNotification("dirwatcher: ${dce.eventType()} ${dce.path()}")
-            WImageViewer.showNotification("Folder changed!")
-            when(dce.eventType()) {
-                DirectoryChangeEvent.EventType.CREATE -> runLater {
-                    updateFiles(folder, currentImage.file)
-                }
-                DirectoryChangeEvent.EventType.MODIFY -> runLater {
-                    updateFiles(folder, currentImage.file)
-                }
-                DirectoryChangeEvent.EventType.DELETE -> runLater {
-                    if (dce.path().toFile().path == currentImage.file?.path)
-                        removeCurrent()
-                    else
+        try {
+            dw = DirectoryWatcher.builder().path(folder.toPath()).listener { dce ->
+                logger.info("dirwatcher($folder) event: $dce ${dce.path()}")
+                // WImageViewer.showNotification("dirwatcher: ${dce.eventType()} ${dce.path()}")
+                WImageViewer.showNotification("Folder changed!")
+                when (dce.eventType()) {
+                    DirectoryChangeEvent.EventType.CREATE -> runLater {
                         updateFiles(folder, currentImage.file)
+                    }
+                    DirectoryChangeEvent.EventType.MODIFY -> runLater {
+                        updateFiles(folder, currentImage.file)
+                    }
+                    DirectoryChangeEvent.EventType.DELETE -> runLater {
+                        if (dce.path().toFile().path == currentImage.file?.path)
+                            removeCurrent()
+                        else
+                            updateFiles(folder, currentImage.file)
+                    }
+                    DirectoryChangeEvent.EventType.OVERFLOW -> {
+                        logger.error("dirwatcher overflow!")
+                        updateFiles(folder, currentImage.file)
+                    }
+                    else -> {
+                    }
                 }
-                DirectoryChangeEvent.EventType.OVERFLOW -> {
-                    logger.error("dirwatcher overflow!")
-                    updateFiles(folder, currentImage.file)
-                }
-                else -> {}
-            }
-        }.fileHashing(false).build()
+            }.fileHashing(false).build()
+        } catch (e: Exception) {
+            logger.error("Exception while starting directory watcher: ")
+            e.printStackTrace()
+            error("Error watching folder!", "Try to drag'n'drop folder\n$folder\n(this might be due to sandboxing)")
+        }
         dw?.watchAsync()
     }
 
     private fun updateFiles(folder: File, setCurrent: File? = null) {
+        logger.info("updateFiles $folder current=$setCurrent")
         currentImage = MyImage(null)
         folder.listFiles()?.filter {
             f -> f.isDirectory || imageExtensions.any { f.name.toLowerCase().endsWith(it) }
@@ -285,6 +298,7 @@ class MyImageList(private val mv: MainView) {
     }
 
     fun setFolderFile(f: File) {
+        logger.info("setfolderfile: $f")
         if (f.isDirectory) {
             updateFiles(f)
         } else {
@@ -650,11 +664,29 @@ class WImageViewer : App() {
 }
 
 fun main(args: Array<String>) {
+    val oldOut: PrintStream = System.out
+    val oldErr: PrintStream = System.err
+    var logps: FileOutputStream? = null
+    class MyConsole(val errchan: Boolean): OutputStream() {
+        override fun write(b: Int) {
+            logps?.write(b)
+            (if (errchan) oldErr else oldOut).print(b.toChar().toString())
+        }
+    }
+    System.setOut(PrintStream(MyConsole(false), true))
+    System.setErr(PrintStream(MyConsole(true), true))
+
     System.setProperty(org.slf4j.simple.SimpleLogger.DEFAULT_LOG_LEVEL_KEY, "TRACE")
     System.setProperty(org.slf4j.simple.SimpleLogger.SHOW_DATE_TIME_KEY, "true")
     System.setProperty(org.slf4j.simple.SimpleLogger.DATE_TIME_FORMAT_KEY, "yyyy-MM-dd HH:mm:ss:SSS")
     System.setProperty(org.slf4j.simple.SimpleLogger.LOG_FILE_KEY, "System.out") // and use intellij "grep console" plugin
 //    System.setProperty("prism.verbose", "true")
+
+    var dir = System.getProperty("java.io.tmpdir")
+    if (Helpers.isLinux() || Helpers.isMac()) if (File("/tmp").isDirectory) dir = "/tmp"
+    val logfile = File("$dir/wimageviewerlog.txt")
+    logps = FileOutputStream(logfile)
+
     logger = KotlinLogging.logger {} // after set properties!
 
     logger.error("error")
@@ -663,6 +695,7 @@ fun main(args: Array<String>) {
     logger.debug("debug")
     logger.trace("trace")
 
+    logger.info("Log file: $logfile")
     ManagementFactory.getRuntimeMXBean().inputArguments.forEach { logger.debug("jvm arg: $it") }
 
     logger.info("starting wimageviewer!")

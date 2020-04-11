@@ -515,10 +515,6 @@ class WImageViewer : App() {
         stage.show()
         Platform.setImplicitExit(true)
 
-        stage.scene?.setOnKeyReleased {
-            mv.hideQuickFolders()
-        }
-
         stage.scene?.setOnDragOver {
             if (it.dragboard.hasFiles()) {
                 it.acceptTransferModes(TransferMode.COPY, TransferMode.MOVE, TransferMode.LINK)
@@ -533,9 +529,10 @@ class WImageViewer : App() {
         }
 
         // just change files here, directorywatcher catches changes!
-        stage.scene?.setOnKeyPressed {
-            when (it.text) {
-                "?" -> showHelp()
+        stage.scene?.setOnKeyTyped { // only this is independent of platform and keyboard layout!
+            logger.debug("keytyped: char=${it.character} text=${it.text} code=${it.code}")
+            when (it.character) {
+                "h" -> showHelp()
                 "+" -> mv.updateImageSize(Zoom.IN)
                 "-" -> mv.updateImageSize(Zoom.OUT)
                 "=" -> mv.updateImageSize(Zoom.FIT)
@@ -568,58 +565,64 @@ class WImageViewer : App() {
                         }
                     }
                 }
-                else -> when (it.code) {
-                    KeyCode.DOWN, KeyCode.SPACE -> mv.il.showNext()
-                    KeyCode.UP -> mv.il.showPrev()
-                    KeyCode.HOME -> mv.il.showFirst()
-                    KeyCode.END -> mv.il.showFirst(true)
-                    KeyCode.LEFT -> mv.il.currentImage.file?.parentFile?.parentFile?.also { pf -> mv.il.setFolderFile(pf) }
-                    KeyCode.RIGHT -> if (mv.il.currentImage.file?.isDirectory == true) { mv.il.setFolderFile(mv.il.currentImage.file!!) }
-                    KeyCode.ALT -> mv.showQuickFolders(QuickOperation.COPY)
-                    KeyCode.COMMAND -> mv.showQuickFolders(QuickOperation.MOVE)
-                    KeyCode.CONTROL -> mv.showQuickFolders(QuickOperation.MOVE)
-                    KeyCode.BACK_SPACE -> {
-                        if (mv.il.currentImage.exists) {
-                            var doit = it.isMetaDown
-                            if (!doit) confirm("Confirm delete current file", mv.il.currentImage.path, owner = FX.primaryStage) { doit = true }
-                            if (doit) {
-                                val res = Helpers.trashOrDelete(mv.il.currentImage.file!!) + " ${mv.il.currentImage}"
-                                showNotification(res)
-                            }
+            }
+        }
+        stage.scene?.setOnKeyPressed {
+            logger.debug("keypressed: char=${it.character} text=${it.text} code=${it.code}")
+            when (it.code) {
+                KeyCode.DOWN, KeyCode.SPACE -> mv.il.showNext()
+                KeyCode.UP -> mv.il.showPrev()
+                KeyCode.HOME -> mv.il.showFirst()
+                KeyCode.END -> mv.il.showFirst(true)
+                KeyCode.LEFT -> mv.il.currentImage.file?.parentFile?.parentFile?.also { pf -> mv.il.setFolderFile(pf) }
+                KeyCode.RIGHT -> if (mv.il.currentImage.file?.isDirectory == true) { mv.il.setFolderFile(mv.il.currentImage.file!!) }
+                KeyCode.ALT -> mv.showQuickFolders(QuickOperation.COPY)
+                KeyCode.COMMAND -> mv.showQuickFolders(QuickOperation.MOVE)
+                KeyCode.CONTROL -> mv.showQuickFolders(QuickOperation.MOVE)
+                KeyCode.BACK_SPACE -> {
+                    if (mv.il.currentImage.exists) {
+                        var doit = it.isMetaDown
+                        if (!doit) confirm("Confirm delete current file", mv.il.currentImage.path, owner = FX.primaryStage) { doit = true }
+                        if (doit) {
+                            val res = Helpers.trashOrDelete(mv.il.currentImage.file!!) + " ${mv.il.currentImage}"
+                            showNotification(res)
                         }
                     }
-                    in KeyCode.DIGIT1..KeyCode.DIGIT6 -> {
-                        val keynumber = it.code.ordinal - KeyCode.DIGIT1.ordinal + 1
-                        val source = mv.il.currentImage
-                        if (source.file?.isFile != true) {
-                            showNotification("Current item is not a file")
-                            return@setOnKeyPressed
-                        }
-                        val target = File(Settings.settings.quickFolders[keynumber]!!)
-                        if (!target.isDirectory || !target.canWrite()) {
-                            showNotification("Target is not a folder or not writable:\n$target")
-                            return@setOnKeyPressed
-                        }
-                        val targetp = Paths.get(target.absolutePath, source.file.name)
-                        if (targetp.toFile().exists()) {
-                            showNotification("Target exists already:\n$targetp")
-                            return@setOnKeyPressed
-                        }
-                        if (!it.isControlDown && it.isAltDown && !it.isMetaDown) {
-                            logger.info("copy ${source.file.toPath()} to $targetp")
-                            Files.copy(source.file.toPath(), targetp, StandardCopyOption.COPY_ATTRIBUTES)
-                            showNotification("Copied\n$source\nto\n$targetp")
-                        } else if (!it.isAltDown && (it.isControlDown || it.isMetaDown)) {
-                            logger.info("move ${source.file.toPath()} to $targetp")
-                            Files.move(source.file.toPath(), targetp)
-                            showNotification("Moved\n$source\nto\n$targetp")
-                        }
+                }
+                in KeyCode.DIGIT1..KeyCode.DIGIT6 -> {
+                    val keynumber = it.code.ordinal - KeyCode.DIGIT1.ordinal + 1
+                    val source = mv.il.currentImage
+                    if (source.file?.isFile != true) {
+                        showNotification("Current item is not a file")
+                        return@setOnKeyPressed
                     }
-                    else -> {
+                    val target = File(Settings.settings.quickFolders[keynumber]!!)
+                    if (!target.isDirectory || !target.canWrite()) {
+                        showNotification("Target is not a folder or not writable:\n$target")
+                        return@setOnKeyPressed
                     }
+                    val targetp = Paths.get(target.absolutePath, source.file.name)
+                    if (targetp.toFile().exists()) {
+                        showNotification("Target exists already:\n$targetp")
+                        return@setOnKeyPressed
+                    }
+                    if (!it.isControlDown && it.isAltDown && !it.isMetaDown) {
+                        logger.info("copy ${source.file.toPath()} to $targetp")
+                        Files.copy(source.file.toPath(), targetp, StandardCopyOption.COPY_ATTRIBUTES)
+                        showNotification("Copied\n$source\nto\n$targetp")
+                    } else if (!it.isAltDown && (it.isControlDown || it.isMetaDown)) {
+                        logger.info("move ${source.file.toPath()} to $targetp")
+                        Files.move(source.file.toPath(), targetp)
+                        showNotification("Moved\n$source\nto\n$targetp")
+                    }
+                }
+                else -> {
                 }
             }
          }
+        stage.scene?.setOnKeyReleased {
+            mv.hideQuickFolders()
+        }
 
         if (Settings.settings.lastImage != "") mv.il.setFolderFile(File(Settings.settings.lastImage))
         mv.updateImageSize(Zoom.FIT)
@@ -652,10 +655,11 @@ class WImageViewer : App() {
                     |n - rename
                     |l - reveal file in file browser
                     |backspace - trash/delete current image (meta: don't confirm)
-                    |[alt,cmd]+[1-6] - Quickfolder operations copy/move
-                    |left/right - navigate folders
                     |o - open Folder
-                    |? - show this help
+                    |left/right - navigate folders
+                    |[alt,ctrl|cmd] - Keep pressed to show quickfolders
+                    |[alt,ctrl|cmd]+[1-6] - Quickfolder operations copy,move
+                    |h - show this help
                     |
                     |Drop a folder or file onto the main window to open it!
                 """.trimMargin(), owner = FX.primaryStage)

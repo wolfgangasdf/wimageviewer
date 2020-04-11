@@ -7,7 +7,7 @@ import org.openjfx.gradle.JavaFXOptions
 val kotlinversion = "1.3.70"
 group = "com.wolle.wimageviewer"
 version = "1.0-SNAPSHOT"
-val cPlatforms = listOf("mac") // compile for these platforms. "mac", "linux", "win"
+val cPlatforms = listOf("mac","win") // compile for these platforms. "mac", "linux", "win"
 
 println("Current Java version: ${JavaVersion.current()}")
 if (JavaVersion.current().majorVersion.toInt() < 14) throw GradleException("Use Java >= 14")
@@ -60,7 +60,7 @@ dependencies {
     implementation("org.slf4j:slf4j-simple:1.8.0-beta4") // no colors, everything stderr
     implementation("no.tornado:tornadofx:2.0.0-SNAPSHOT")
     implementation("io.methvin:directory-watcher:0.9.9")
-    implementation("org.controlsfx:controlsfx:11.0.1")
+    implementation("org.controlsfx:controlsfx:11.0.1") { exclude("org.openjfx") }
     implementation("com.drewnoakes:metadata-extractor:2.13.0")
 
     cPlatforms.forEach {platform ->
@@ -157,6 +157,13 @@ open class CrossPackage : DefaultTask() {
                     zipTo(File("${project.buildDir.path}/crosspackage/$execfilename-mac.zip"), File("${project.buildDir.path}/crosspackage/mac"))
                 }
                 "win" -> {
+                    File("$imgdir/bin/$execfilename.bat").delete() // from runtime, not nice
+                    val pf = File("$imgdir/$execfilename.bat")
+                    pf.writeText("""
+                        set JLINK_VM_OPTIONS="${project.application.applicationDefaultJvmArgs.joinToString(" ")}"
+                        set DIR=%~dp0
+                        start "" "%DIR%\bin\javaw" %JLINK_VM_OPTIONS% -classpath "%DIR%/lib/*" ${project.application.mainClassName} 
+                    """.trimIndent())
                     zipTo(File("${project.buildDir.path}/crosspackage/$execfilename-win.zip"), File(imgdir))
                 }
                 "linux" -> {
@@ -175,7 +182,7 @@ tasks.register<CrossPackage>("crosspackage") {
 
 tasks.withType(CreateStartScripts::class).forEach {script ->
     script.doFirst {
-        script.classpath =  files("lib/*")
+        script.classpath = files("lib/*")
     }
 }
 

@@ -4,7 +4,7 @@
 WIMageViewer is an image/photo viewer, it does this:
 
 * Quick folders: Move/copy current image to one of the quick folders, easily changable.
-* Show geolocation in infos
+* Show geolocation & map in infos
 * The help:
 
                     |f - toggle fullscreen
@@ -16,21 +16,21 @@ WIMageViewer is an image/photo viewer, it does this:
                     |n - rename
                     |l - reveal file in file browser
                     |backspace - trash/delete current image (meta: don't confirm)
-                    |[alt,cmd]+[1-6] - Quickfolder operations copy/move
-                    |left/right - navigate folders
                     |o - open Folder
-                    |? - show this help
+                    |left/right - navigate folders
+                    |[alt,ctrl|cmd] - Keep pressed to show quickfolders
+                    |[alt,ctrl|cmd]+[1-6] - Quickfolder operations copy,move
+                    |h - show this help
                     |
                     |Drop a folder or file onto the main window to open it!
 
 ### How to run ###
 
-* [Download the zip](https://github.com/wolfgangasdf/wimageviewer/releases), extract it somewhere and double-click the app (Mac) or
-  `bin/wimageviewer.bat` (Windows) or `bin/wimageviewer` (Linux).
+* [Download the zip](https://github.com/wolfgangasdf/wimageviewer/releases), extract it somewhere and run it. It is not signed, google for "open unsigned mac/win".
 
 ### How to develop, compile & package ###
 
-* Get Java 13 from https://jdk.java.net
+* Get Java 14 from https://jdk.java.net
 * Clone the repository
 * I use the free community version of [IntelliJ IDEA](https://www.jetbrains.com/idea/download/)
 

@@ -285,7 +285,7 @@ class MyImageList(private val mv: MainView) {
         folder.listFiles()?.filter {
             f -> f.isDirectory || imageExtensions.any { f.name.toLowerCase().endsWith(it) }
         }?.sorted()?.also {
-            logger.debug("adding ${it.joinToString(", ")}")
+            logger.debug("adding ${it.size} files...")
             currentImages.clear()
             it.forEach { f ->
                 val img = MyImage(f)
@@ -569,17 +569,18 @@ class WImageViewer : App() {
         }
         stage.scene?.setOnKeyPressed {
             logger.debug("keypressed: char=${it.character} text=${it.text} code=${it.code}")
-            when (it.code) {
-                KeyCode.DOWN, KeyCode.SPACE -> mv.il.showNext()
-                KeyCode.UP -> mv.il.showPrev()
-                KeyCode.HOME -> mv.il.showFirst()
-                KeyCode.END -> mv.il.showFirst(true)
-                KeyCode.LEFT -> mv.il.currentImage.file?.parentFile?.parentFile?.also { pf -> mv.il.setFolderFile(pf) }
-                KeyCode.RIGHT -> if (mv.il.currentImage.file?.isDirectory == true) { mv.il.setFolderFile(mv.il.currentImage.file!!) }
-                KeyCode.ALT -> mv.showQuickFolders(QuickOperation.COPY)
-                KeyCode.COMMAND -> mv.showQuickFolders(QuickOperation.MOVE)
-                KeyCode.CONTROL -> mv.showQuickFolders(QuickOperation.MOVE)
-                KeyCode.BACK_SPACE -> {
+            when {
+                it.code == KeyCode.UP && (it.isControlDown || it.isMetaDown) -> mv.il.currentImage.file?.parentFile?.parentFile?.also { pf -> mv.il.setFolderFile(pf) }
+                it.code == KeyCode.DOWN && (it.isControlDown || it.isMetaDown) -> if (mv.il.currentImage.file?.isDirectory == true) { mv.il.setFolderFile(mv.il.currentImage.file!!) }
+                it.code == KeyCode.DOWN -> mv.il.showNext()
+                it.code == KeyCode.UP -> mv.il.showPrev()
+                it.code == KeyCode.SPACE -> if (it.isShiftDown) mv.il.showPrev() else mv.il.showNext()
+                it.code == KeyCode.HOME -> mv.il.showFirst()
+                it.code == KeyCode.END -> mv.il.showFirst(true)
+                it.code == KeyCode.ALT -> mv.showQuickFolders(QuickOperation.COPY)
+                it.code == KeyCode.COMMAND -> mv.showQuickFolders(QuickOperation.MOVE)
+                it.code == KeyCode.CONTROL -> mv.showQuickFolders(QuickOperation.MOVE)
+                it.code == KeyCode.BACK_SPACE -> {
                     if (mv.il.currentImage.exists) {
                         var doit = it.isMetaDown
                         if (!doit) confirm("Confirm delete current file", mv.il.currentImage.path, owner = FX.primaryStage) { doit = true }
@@ -589,7 +590,7 @@ class WImageViewer : App() {
                         }
                     }
                 }
-                in KeyCode.DIGIT1..KeyCode.DIGIT6 -> {
+                it.code in KeyCode.DIGIT1..KeyCode.DIGIT6 -> {
                     val keynumber = it.code.ordinal - KeyCode.DIGIT1.ordinal + 1
                     val source = mv.il.currentImage
                     if (source.file?.isFile != true) {
@@ -648,15 +649,15 @@ class WImageViewer : App() {
             information("Help", """
                     |f - toggle fullscreen
                     |i - show image information and geolocation
-                    |down/up - next/prev
-                    |home/end - first/last
+                    |down|space / up|shift+space - next / prev image
+                    |home / end - first / last image
                     |r - rotate
                     |[+,-,=] - zoom in,out,fit
                     |n - rename
                     |l - reveal file in file browser
                     |backspace - trash/delete current image (meta: don't confirm)
-                    |o - open Folder
-                    |left/right - navigate folders
+                    |o - open Folder...
+                    |ctr|meta + up / down - navigate folders
                     |[alt,ctrl|cmd] - Keep pressed to show quickfolders
                     |[alt,ctrl|cmd]+[1-6] - Quickfolder operations copy,move
                     |h - show this help

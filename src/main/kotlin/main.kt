@@ -172,7 +172,7 @@ class HelperWindows(private val mv: MainView) {
 class MyImageList(private val mv: MainView) {
     private val currentImages: ConcurrentSkipListSet<MyImage> = ConcurrentSkipListSet<MyImage>()
     var currentImage: MyImage = MyImage(null)
-    private val imageExtensions = listOf(".jpg", ".jpeg", ".png")
+    private val imageExtensions = listOf(".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff")
     private var dw: DirectoryWatcher? = null
 
     private fun removeCurrent() {
@@ -297,12 +297,13 @@ class MyImageList(private val mv: MainView) {
         watchdir(folder)
     }
 
-    fun setFolderFile(f: File) {
-        logger.info("setfolderfile: $f")
-        if (f.isDirectory) {
-            updateFiles(f)
+    // loads folder with files, if folder==file, show it, else possibly revealFile
+    fun setFolder(folder: File, revealFile: File? = null) {
+        logger.info("setfolder: $folder , $revealFile")
+        if (folder.isDirectory) {
+            updateFiles(folder, revealFile)
         } else {
-            updateFiles(f.parentFile, f)
+            updateFiles(folder.parentFile, folder)
         }
         if (currentImage.file == null) showFirst() else showCurrentImage()
     }
@@ -523,7 +524,7 @@ class WImageViewer : App() {
         stage.scene?.setOnDragDropped {
             if (it.dragboard.hasFiles()) {
                 it.dragboard.files.firstOrNull()?.also { f ->
-                    mv.il.setFolderFile(f)
+                    mv.il.setFolder(f)
                 }
             }
         }
@@ -547,7 +548,7 @@ class WImageViewer : App() {
                 "r" -> mv.updateImageSize(relangle = 90)
                 "o" -> {
                     chooseDirectory("Open folder", mv.il.currentImage.file?.parentFile)?.also { f ->
-                        mv.il.setFolderFile(f)
+                        mv.il.setFolder(f)
                     }
                 }
                 "l" -> if (mv.il.currentImage.file?.exists() == true) Helpers.revealFile(mv.il.currentImage.file!!)
@@ -570,8 +571,8 @@ class WImageViewer : App() {
         stage.scene?.setOnKeyPressed {
             logger.debug("keypressed: char=${it.character} text=${it.text} code=${it.code}")
             when {
-                it.code == KeyCode.UP && (it.isControlDown || it.isMetaDown) -> mv.il.currentImage.file?.parentFile?.parentFile?.also { pf -> mv.il.setFolderFile(pf) }
-                it.code == KeyCode.DOWN && (it.isControlDown || it.isMetaDown) -> if (mv.il.currentImage.file?.isDirectory == true) { mv.il.setFolderFile(mv.il.currentImage.file!!) }
+                it.code == KeyCode.UP && (it.isControlDown || it.isMetaDown) -> mv.il.currentImage.file?.parentFile?.parentFile?.also { pf -> mv.il.setFolder(pf, mv.il.currentImage.file?.parentFile) }
+                it.code == KeyCode.DOWN && (it.isControlDown || it.isMetaDown) -> if (mv.il.currentImage.file?.isDirectory == true) { mv.il.setFolder(mv.il.currentImage.file!!) }
                 it.code == KeyCode.DOWN -> mv.il.showNext()
                 it.code == KeyCode.UP -> mv.il.showPrev()
                 it.code == KeyCode.SPACE -> if (it.isShiftDown) mv.il.showPrev() else mv.il.showNext()
@@ -625,7 +626,7 @@ class WImageViewer : App() {
             mv.hideQuickFolders()
         }
 
-        if (Settings.settings.lastImage != "") mv.il.setFolderFile(File(Settings.settings.lastImage))
+        if (Settings.settings.lastImage != "") mv.il.setFolder(File(Settings.settings.lastImage))
         mv.updateImageSize(Zoom.FIT)
 
     } // start

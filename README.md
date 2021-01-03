@@ -4,6 +4,7 @@
 WIMageViewer is an image/photo viewer, it does this:
 
 * Quick folders: Move/copy current image to one of the quick folders, easily changable.
+* It caches images. 
 * Show geolocation & map in infos
 * The help:
 

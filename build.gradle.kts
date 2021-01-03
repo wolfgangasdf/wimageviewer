@@ -4,13 +4,14 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import org.openjfx.gradle.JavaFXModule
 import org.openjfx.gradle.JavaFXOptions
 
-val kotlinversion = "1.4.10"
+val kotlinversion = "1.4.21"
+val javaversion = 15
 group = "com.wolle.wimageviewer"
 version = "1.0-SNAPSHOT"
 val cPlatforms = listOf("mac","win") // compile for these platforms. "mac", "linux", "win"
 
 println("Current Java version: ${JavaVersion.current()}")
-if (JavaVersion.current().majorVersion.toInt() < 14) throw GradleException("Use Java >= 14")
+if (JavaVersion.current().majorVersion.toInt() < javaversion) throw GradleException("Use Java >= $javaversion")
 
 buildscript {
     repositories {
@@ -20,16 +21,16 @@ buildscript {
 }
 
 plugins {
-    kotlin("jvm") version "1.4.10"
+    kotlin("jvm") version "1.4.21"
     id("idea")
     application
     id("org.openjfx.javafxplugin") version "0.0.9"
-    id("com.github.ben-manes.versions") version "0.33.0"
-    id("org.beryx.runtime") version "1.11.4"
+    id("com.github.ben-manes.versions") version "0.36.0"
+    id("org.beryx.runtime") version "1.12.1"
 }
 
 application {
-    mainClassName = "MainKt"
+    mainClass.set("MainKt")
     applicationDefaultJvmArgs = listOf("-Dprism.verbose=true", "-Dprism.order=sw", // use software renderer
             // javafx 13 tornadofx bug: https://github.com/edvin/tornadofx/issues/899#issuecomment-569709223
             "--add-opens=javafx.controls/javafx.scene.control=ALL-UNNAMED", "--add-opens=javafx.graphics/javafx.scene=ALL-UNNAMED"
@@ -46,7 +47,7 @@ repositories {
 }
 
 javafx {
-    version = "14"
+    version = "$javaversion"
     modules("javafx.base", "javafx.controls", "javafx.web", "javafx.media", "javafx.graphics")
     // set compileOnly for crosspackage to avoid packaging host javafx jmods for all target platforms
     configuration = if (project.gradle.startParameter.taskNames.intersect(listOf("crosspackage", "dist")).isNotEmpty()) "compileOnly" else "implementation"
@@ -56,11 +57,11 @@ val javaFXOptions = the<JavaFXOptions>()
 dependencies {
     implementation("org.jetbrains.kotlin:kotlin-stdlib:$kotlinversion")
     implementation("org.jetbrains.kotlin:kotlin-reflect:$kotlinversion")
-    implementation("io.github.microutils:kotlin-logging:2.0.3")
+    implementation("io.github.microutils:kotlin-logging:2.0.4")
     implementation("org.slf4j:slf4j-simple:1.8.0-beta4") // no colors, everything stderr
-    implementation("no.tornado:tornadofx:2.0.0-SNAPSHOT")
-    implementation("io.methvin:directory-watcher:0.10.1")
-    implementation("org.controlsfx:controlsfx:11.0.2") { exclude("org.openjfx") }
+    implementation("no.tornado:tornadofx:2.0.0-SNAPSHOT") { exclude("org.jetbrains.kotlin", "kotlin-stdlib-jdk8") }
+    implementation("io.methvin:directory-watcher:0.11.0")
+    implementation("org.controlsfx:controlsfx:11.0.3") { exclude("org.openjfx") }
     implementation("com.drewnoakes:metadata-extractor:2.15.0")
 
     cPlatforms.forEach {platform ->
@@ -76,7 +77,7 @@ runtime {
     options.set(listOf("--strip-debug", "--compress", "2", "--no-header-files", "--no-man-pages"))
     // first row: suggestModules
     modules.set(listOf("java.desktop", "java.logging", "java.prefs", "jdk.unsupported", "jdk.jfr", "jdk.jsobject", "jdk.xml.dom",
-            "java.management", "jdk.crypto.cryptoki","jdk.crypto.ec"))
+            "java.management", "java.net.http", "jdk.crypto.cryptoki","jdk.crypto.ec"))
 
     if (cPlatforms.contains("mac")) targetPlatform("mac", System.getenv("JDK_MAC_HOME"))
     if (cPlatforms.contains("win")) targetPlatform("win", System.getenv("JDK_WIN_HOME"))
@@ -162,7 +163,7 @@ open class CrossPackage : DefaultTask() {
                     pf.writeText("""
                         set JLINK_VM_OPTIONS="${project.application.applicationDefaultJvmArgs.joinToString(" ")}"
                         set DIR=%~dp0
-                        start "" "%DIR%\bin\javaw" %JLINK_VM_OPTIONS% -classpath "%DIR%/lib/*" ${project.application.mainClassName} 
+                        start "" "%DIR%\bin\javaw" %JLINK_VM_OPTIONS% -classpath "%DIR%/lib/*" ${project.application.mainClass.get()} 
                     """.trimIndent())
                     zipTo(File("${project.buildDir.path}/crosspackage/$execfilename-win.zip"), File(imgdir))
                 }

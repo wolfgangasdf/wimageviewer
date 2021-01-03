@@ -1,8 +1,10 @@
 import com.drew.imaging.ImageMetadataReader
 import com.drew.lang.GeoLocation
 import com.drew.metadata.exif.GpsDirectory
+
 import io.methvin.watcher.DirectoryChangeEvent
 import io.methvin.watcher.DirectoryWatcher
+
 import javafx.application.Platform
 import javafx.event.Event
 import javafx.geometry.Insets
@@ -10,38 +12,45 @@ import javafx.geometry.Pos
 import javafx.scene.control.OverrunStyle
 import javafx.scene.control.TextInputDialog
 import javafx.scene.image.Image
-import javafx.scene.image.WritableImage
 import javafx.scene.input.KeyCode
 import javafx.scene.input.KeyEvent
 import javafx.scene.input.TransferMode
 import javafx.scene.layout.*
 import javafx.scene.paint.Color
-import javafx.scene.text.Text
 import javafx.stage.Modality
 import javafx.stage.Stage
 import javafx.util.Duration
+
 import mu.KLogger
 import mu.KotlinLogging
+
 import org.controlsfx.control.Notifications
+
 import tornadofx.*
+
 import java.io.File
 import java.io.FileOutputStream
 import java.io.OutputStream
 import java.io.PrintStream
-import java.lang.Exception
 import java.lang.management.ManagementFactory
 import java.nio.file.Files
 import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
 import java.util.concurrent.ConcurrentSkipListSet
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+
 import javax.imageio.ImageIO
+
+import kotlin.concurrent.thread
+import kotlin.math.abs
 import kotlin.math.min
 import kotlin.system.exitProcess
 
 
 private lateinit var logger: KLogger
 
-enum class QuickOperation { COPY, MOVE }
+enum class QuickOperation { COPY, MOVE, GO }
 
 enum class Zoom { IN, OUT, FIT}
 
@@ -134,6 +143,10 @@ class HelperWindows(private val mv: MainView) {
             button(index.toString()).apply {
                 prefWidth = 25.0
                 prefHeight = 50.0
+                tooltip("Reveal folder")
+                onLeftClick {
+                    Helpers.openFile(File(file))
+                }
             }
             vbox {
                 maxHeight = 50.0
@@ -163,6 +176,9 @@ class HelperWindows(private val mv: MainView) {
                 isWrapText = true
                 textOverrun = OverrunStyle.LEADING_WORD_ELLIPSIS
                 tooltip(file)
+                onLeftClick {
+                    WImageViewer.showNotification("This does nothing, type the number!")
+                }
             }
         }
     }
@@ -172,7 +188,7 @@ class HelperWindows(private val mv: MainView) {
 class MyImageList(private val mv: MainView) {
     private val currentImages: ConcurrentSkipListSet<MyImage> = ConcurrentSkipListSet<MyImage>()
     var currentImage: MyImage = MyImage(null)
-    private val imageExtensions = listOf(".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff")
+    private val imageExtensions = listOf(".jpg", ".jpeg", ".png", ".gif", ".bmp")
     private var dw: DirectoryWatcher? = null
 
     private fun removeCurrent() {
@@ -233,9 +249,16 @@ class MyImageList(private val mv: MainView) {
     private fun showCurrentImage() {
         logger.info("showCurrentImage: $currentImage")
         mv.guiCurrentPath.set(currentImage.toString())
+        mv.guiCurrentIdx.set(currentImages.indexOf(currentImage))
         mv.iv.image = null
-        mv.iv.image = currentImage.image
-        mv.updateImageSize()
+        mv.iv.image = currentImage.getImage()
+        if (mv.iv.image.progress != 1.0) { // image not yet fully loaded, have to wait before updateImageSize()
+            logger.info("showCurrentImage not yet loaded (${mv.iv.image.progress}), waiting...") // TODO
+            mv.iv.image.progressProperty().addListener { _, _, newValue ->
+                logger.info("XXXXXX $newValue") // TODO
+                if (newValue == 1.0) mv.updateImageSize()
+            }
+        } else mv.updateImageSize()
     }
 
     // watches one directory, stops watching the first one before.
@@ -282,17 +305,19 @@ class MyImageList(private val mv: MainView) {
     private fun updateFiles(folder: File, setCurrent: File? = null) {
         logger.info("updateFiles $folder current=$setCurrent")
         currentImage = MyImage(null)
-        folder.listFiles()?.filter {
-            f -> f.isDirectory || imageExtensions.any { f.name.toLowerCase().endsWith(it) }
+        folder.listFiles()?.filter { f -> f.isDirectory || imageExtensions.any { f.name.toLowerCase().endsWith(it) }
         }?.sorted()?.also {
-            logger.debug("adding ${it.size} files...")
+            logger.debug("clearing cache...")
+            currentImages.forEach { mi -> mi.privateImage = null } // cleanup cache
             currentImages.clear()
+            logger.debug("adding ${it.size} files...")
             it.forEach { f ->
                 val img = MyImage(f)
                 if (f.absolutePath == setCurrent?.absolutePath) currentImage = img
                 currentImages.add(img)
             }
         }
+        mv.guiImageCount.set(currentImages.size)
         WImageViewer.showNotification("Loaded files in $folder")
         watchdir(folder)
     }
@@ -307,6 +332,63 @@ class MyImageList(private val mv: MainView) {
         }
         if (currentImage.file == null) showFirst() else showCurrentImage()
     }
+
+    // caching. works totally independent of rest, except clear on folder change!
+    private val cacheBusy = AtomicBoolean(false)
+    private val cacheidx = AtomicInteger(-1) // points to next image to be cached
+    private val cacheN = 3 // cache that many images forth and back
+    private fun doCache(incdec: Boolean) {
+        cacheBusy.set(true)
+        val i = currentImages.elementAt(cacheidx.get())
+        if (i.privateImage == null) {
+            logger.debug("doCache cacheidx=$cacheidx")
+            i.loadImage(true) // loadinbg keeps UI responsive.
+            while (i.privateImage?.progress != 1.0) Thread.sleep(10) // wait until picture is loaded before caching next or so.
+            cacheidx.getAndAdd(if (incdec) +1 else -1)
+            cacheBusy.set(false)
+        } else {
+            cacheidx.getAndAdd(if (incdec) +1 else -1)
+            cacheBusy.set(false)
+        }
+    }
+    init {
+        thread(name = "cachehelper") {
+            var lastcurrentidx = -1
+            var needcaching = false
+            while (true) {
+                if (!cacheBusy.get()) {
+                    val curridx = currentImages.indexOf(currentImage)
+                    if (curridx != lastcurrentidx) {
+                        logger.debug("cacheing: lastidx=$lastcurrentidx curridx=$curridx")
+                        lastcurrentidx = curridx
+                        cacheidx.set(curridx + 1)
+                        needcaching = true
+                    }
+                    if (needcaching) { // do stuff: first forward, then backward.
+                        if (cacheidx.get() < curridx) { // was going back
+                            if (cacheidx.get() < 0 || cacheidx.get() < curridx - cacheN) { // at end backwards
+                                logger.debug("caching: finished, cleanup...")
+                                currentImages.forEachIndexed { index, myImage -> if (myImage!!.privateImage != null && abs(curridx-index) > cacheN) {
+                                    logger.debug("caching: curridx=$curridx remove from cache idx: $index")
+                                    myImage.privateImage = null
+                                } }
+                                needcaching = false
+                            } else { // cache and go back
+                                doCache(false)
+                            }
+                        } else { // was going forward
+                            if (cacheidx.get() >= currentImages.size || cacheidx.get() > curridx + cacheN) { // at end forwards
+                                cacheidx.set(curridx - 1)
+                            } else { // cache and go forward
+                                doCache(true)
+                            }
+                        }
+                    }
+                }
+                Thread.sleep(10)
+            }
+        }
+    }
 }
 
 class MyImage(val file: File?) : Comparable<MyImage> {
@@ -315,23 +397,28 @@ class MyImage(val file: File?) : Comparable<MyImage> {
     val path: String get() = file?.absolutePath?:"no file"
     val size: Long get() = file?.length()?:0
     val exists: Boolean get() = file?.exists() == true
-    val image: Image
-        get() {
-            return if (file == null) {
-                textToImage("no image")!!
-            } else if (!file.exists()) {
-                textToImage("file doesn't exist")!!
-            } else if (file.isDirectory) {
-                textToImage(file.absolutePath)!!
-            } else {
-                logger.debug("myimage: loading ${file.toURI().toURL().toExternalForm()}")
-                Image(file.toURI().toURL().toExternalForm())
-            }
+    var privateImage: Image? = null
+    fun getImage(): Image {
+        assert(Platform.isFxApplicationThread())
+        if (privateImage == null) {
+            logger.debug("myimage.getImage not cached, loadImage(false)! $this")
+            loadImage(false)
         }
+        return privateImage!!
+    }
 
-    private fun textToImage(text: String): WritableImage? {
-        val t = Text(text)
-        return t.snapshot(null, null)
+    fun loadImage(loadinbg: Boolean) {
+        assert(Platform.isFxApplicationThread() || loadinbg)
+        privateImage = if (file == null) {
+            Helpers.textToImage("no image")
+        } else if (!file.exists()) {
+            Helpers.textToImage("file doesn't exist")
+        } else if (file.isDirectory) {
+            Helpers.textToImage(file.absolutePath)
+        } else {
+            logger.debug("myimage: loading ${file.toURI().toURL().toExternalForm()}")
+            Image(file.toURI().toURL().toExternalForm(), loadinbg)
+        }
     }
 
     fun readInfos() {
@@ -379,6 +466,8 @@ class MainView : UIComponent("WImageViewer") {
     private val helperWindows = HelperWindows(this)
     private var currentZoom: SDP = SDP(1.0)
     val guiCurrentPath: SSP = SSP("")
+    val guiCurrentIdx: SIP = SIP(0)
+    val guiImageCount: SIP = SIP(0)
     private var pQuickFolders: HBox = hbox {}
     private var angle = 0
 
@@ -414,10 +503,20 @@ class MainView : UIComponent("WImageViewer") {
             alignment = Pos.CENTER
             label(guiCurrentPath).style { fontSize = 18.px }
             spacer {
-                minWidth = 3.0
-                prefWidth = 10.0
+                minWidth = 5.0
             }
-            label(currentZoom.asString("Zoom: %.1f")).style { fontSize = 18.px }
+            label(currentZoom.asString("Zoom: %.1f")).style {
+                fontSize = 18.px
+                setMinWidth(Region.USE_PREF_SIZE)
+            }
+            spacer {
+                minWidth = 5.0
+                maxWidth = 5.0
+            }
+            label(guiCurrentIdx.asString().concat("/").concat(guiImageCount.asString())).style {
+                fontSize = 18.px
+                setMinWidth(Region.USE_PREF_SIZE)
+            }
         }
         isMouseTransparent = true
     }
@@ -448,10 +547,11 @@ class MainView : UIComponent("WImageViewer") {
     override val root: StackPane = stackpane {
         id = "MainView.root"
         children += scrollPane
+        children += statusBar
     }
 
     fun updateImageSize(z: Zoom? = null, relangle: Int = 0) {
-        logger.debug("updateImageSize $z $relangle")
+        logger.debug("updateImageSize zoom=$z relangle=$relangle")
         when(z) {
             Zoom.IN -> currentZoom.value += 0.5
             Zoom.OUT -> currentZoom.value -= 0.5
@@ -581,6 +681,7 @@ class WImageViewer : App() {
                 it.code == KeyCode.ALT -> mv.showQuickFolders(QuickOperation.COPY)
                 it.code == KeyCode.COMMAND -> mv.showQuickFolders(QuickOperation.MOVE)
                 it.code == KeyCode.CONTROL -> mv.showQuickFolders(QuickOperation.MOVE)
+                it.code == KeyCode.SHIFT -> mv.showQuickFolders(QuickOperation.GO)
                 it.code == KeyCode.BACK_SPACE -> {
                     if (mv.il.currentImage.exists) {
                         var doit = it.isMetaDown
@@ -594,13 +695,17 @@ class WImageViewer : App() {
                 it.code in KeyCode.DIGIT1..KeyCode.DIGIT6 -> {
                     val keynumber = it.code.ordinal - KeyCode.DIGIT1.ordinal + 1
                     val source = mv.il.currentImage
-                    if (source.file?.isFile != true) {
-                        showNotification("Current item is not a file")
-                        return@setOnKeyPressed
-                    }
                     val target = File(Settings.settings.quickFolders[keynumber]!!)
                     if (!target.isDirectory || !target.canWrite()) {
                         showNotification("Target is not a folder or not writable:\n$target")
+                        return@setOnKeyPressed
+                    }
+                    if (!it.isControlDown && !it.isAltDown && !it.isMetaDown && it.isShiftDown) {
+                        logger.info("go to $target")
+                        mv.il.setFolder(target)
+                    }
+                    if (source.file?.isFile != true) {
+                        showNotification("Current item is not a file")
                         return@setOnKeyPressed
                     }
                     val targetp = Paths.get(target.absolutePath, source.file.name)
@@ -608,11 +713,11 @@ class WImageViewer : App() {
                         showNotification("Target exists already:\n$targetp")
                         return@setOnKeyPressed
                     }
-                    if (!it.isControlDown && it.isAltDown && !it.isMetaDown) {
+                    if (!it.isControlDown && it.isAltDown && !it.isMetaDown && !it.isShiftDown) {
                         logger.info("copy ${source.file.toPath()} to $targetp")
                         Files.copy(source.file.toPath(), targetp, StandardCopyOption.COPY_ATTRIBUTES)
                         showNotification("Copied\n$source\nto\n$targetp")
-                    } else if (!it.isAltDown && (it.isControlDown || it.isMetaDown)) {
+                    } else if (!it.isAltDown && (it.isControlDown || it.isMetaDown) && !it.isShiftDown) {
                         logger.info("move ${source.file.toPath()} to $targetp")
                         Files.move(source.file.toPath(), targetp)
                         showNotification("Moved\n$source\nto\n$targetp")
@@ -655,12 +760,12 @@ class WImageViewer : App() {
                     |r - rotate
                     |[+,-,=] - zoom in,out,fit
                     |n - rename
-                    |l - reveal file in file browser
+                    |l - reveal current file in file browser
                     |backspace - trash/delete current image (meta: don't confirm)
                     |o - open Folder...
                     |ctr|meta + up / down - navigate folders
                     |[alt,ctrl|cmd] - Keep pressed to show quickfolders
-                    |[alt,ctrl|cmd]+[1-6] - Quickfolder operations copy,move
+                    |[alt,ctrl|cmd,shift]+[1-6] - Quickfolder operations copy,move,go
                     |h - show this help
                     |
                     |Drop a folder or file onto the main window to open it!

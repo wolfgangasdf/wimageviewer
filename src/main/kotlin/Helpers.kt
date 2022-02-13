@@ -16,6 +16,7 @@ import java.awt.image.BufferedImage
 import java.io.File
 import java.net.URI
 import java.nio.file.Files
+import java.util.*
 
 typealias SSP = SimpleStringProperty
 typealias SDP = SimpleDoubleProperty
@@ -24,9 +25,9 @@ typealias SIP = SimpleIntegerProperty
 private val logger = KotlinLogging.logger {}
 
 object Helpers {
-    fun isMac() = System.getProperty("os.name").toLowerCase().contains("mac")
-    fun isLinux() = System.getProperty("os.name").toLowerCase().matches("(.*nix)|(.*nux)".toRegex())
-    fun isWin() = System.getProperty("os.name").toLowerCase().contains("win")
+    fun isMac() = System.getProperty("os.name").lowercase(Locale.getDefault()).contains("mac")
+    fun isLinux() = System.getProperty("os.name").lowercase(Locale.getDefault()).matches("(.*nix)|(.*nux)".toRegex())
+    fun isWin() = System.getProperty("os.name").lowercase(Locale.getDefault()).contains("win")
 
     fun toJavaPathSeparator(input: String): String =
             if (isWin()) input.replace("""\\""", "/")

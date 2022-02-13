@@ -36,6 +36,7 @@ import java.lang.management.ManagementFactory
 import java.nio.file.Files
 import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
+import java.util.*
 import java.util.concurrent.ConcurrentSkipListSet
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -305,7 +306,7 @@ class MyImageList(private val mv: MainView) {
     private fun updateFiles(folder: File, setCurrent: File? = null) {
         logger.info("updateFiles $folder current=$setCurrent")
         currentImage = MyImage(null)
-        folder.listFiles()?.filter { f -> f.isDirectory || imageExtensions.any { f.name.toLowerCase().endsWith(it) }
+        folder.listFiles()?.filter { f -> f.isDirectory || imageExtensions.any { f.name.lowercase(Locale.getDefault()).endsWith(it) }
         }?.sorted()?.also {
             logger.debug("clearing cache...")
             currentImages.forEach { mi -> mi.privateImage = null } // cleanup cache
@@ -556,6 +557,7 @@ class MainView : UIComponent("WImageViewer") {
             Zoom.IN -> currentZoom.value += 0.5
             Zoom.OUT -> currentZoom.value -= 0.5
             Zoom.FIT -> currentZoom.value = 1.0
+            null -> {}
         }
         if (currentZoom.value <= 1.0) currentZoom.set(1.0)
 

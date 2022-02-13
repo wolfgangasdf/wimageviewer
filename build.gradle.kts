@@ -4,8 +4,8 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import org.openjfx.gradle.JavaFXModule
 import org.openjfx.gradle.JavaFXOptions
 
-val kotlinversion = "1.4.21"
-val javaversion = 15
+val kotlinversion = "1.6.10"
+val javaversion = 17
 group = "com.wolle.wimageviewer"
 version = "1.0-SNAPSHOT"
 val cPlatforms = listOf("mac","win") // compile for these platforms. "mac", "linux", "win"
@@ -16,17 +16,16 @@ if (JavaVersion.current().majorVersion.toInt() < javaversion) throw GradleExcept
 buildscript {
     repositories {
         mavenCentral()
-        jcenter()
     }
 }
 
 plugins {
-    kotlin("jvm") version "1.4.21"
+    kotlin("jvm") version "1.6.10"
     id("idea")
     application
-    id("org.openjfx.javafxplugin") version "0.0.9"
-    id("com.github.ben-manes.versions") version "0.36.0"
-    id("org.beryx.runtime") version "1.12.1"
+    id("org.openjfx.javafxplugin") version "0.0.11"
+    id("com.github.ben-manes.versions") version "0.42.0"
+    id("org.beryx.runtime") version "1.12.7"
 }
 
 application {
@@ -42,8 +41,7 @@ application {
 
 repositories {
     mavenCentral()
-    jcenter()
-    maven { setUrl("https://oss.sonatype.org/content/repositories/snapshots") } // tornadofx snapshots
+    maven { setUrl("https://oss.sonatype.org/content/repositories/snapshots") } // https://github.com/edvin/tornadofx2
 }
 
 javafx {
@@ -57,12 +55,12 @@ val javaFXOptions = the<JavaFXOptions>()
 dependencies {
     implementation("org.jetbrains.kotlin:kotlin-stdlib:$kotlinversion")
     implementation("org.jetbrains.kotlin:kotlin-reflect:$kotlinversion")
-    implementation("io.github.microutils:kotlin-logging:2.0.4")
+    implementation("io.github.microutils:kotlin-logging:2.1.21")
     implementation("org.slf4j:slf4j-simple:1.8.0-beta4") // no colors, everything stderr
-    implementation("no.tornado:tornadofx:2.0.0-SNAPSHOT") { exclude("org.jetbrains.kotlin", "kotlin-stdlib-jdk8") }
-    implementation("io.methvin:directory-watcher:0.11.0")
-    implementation("org.controlsfx:controlsfx:11.0.3") { exclude("org.openjfx") }
-    implementation("com.drewnoakes:metadata-extractor:2.15.0")
+    implementation("no.tornado:tornadofx:2.0.0-SNAPSHOT") { exclude("org.jetbrains.kotlin", "kotlin-stdlib-jdk8") } // https://github.com/edvin/tornadofx2
+    implementation("io.methvin:directory-watcher:0.15.0")
+    implementation("org.controlsfx:controlsfx:11.1.1") { exclude("org.openjfx") }
+    implementation("com.drewnoakes:metadata-extractor:2.16.0")
 
     cPlatforms.forEach {platform ->
         val cfg = configurations.create("javafx_$platform")

@@ -1,5 +1,6 @@
 import com.drew.imaging.ImageMetadataReader
 import com.drew.lang.GeoLocation
+import com.drew.metadata.exif.ExifIFD0Directory
 import com.drew.metadata.exif.GpsDirectory
 
 import io.methvin.watcher.DirectoryChangeEvent
@@ -47,6 +48,7 @@ import kotlin.concurrent.thread
 import kotlin.math.abs
 import kotlin.math.min
 import kotlin.system.exitProcess
+import kotlin.system.measureTimeMillis
 
 
 private lateinit var logger: KLogger
@@ -254,12 +256,12 @@ class MyImageList(private val mv: MainView) {
         mv.iv.image = null
         mv.iv.image = currentImage.getImage()
         if (mv.iv.image.progress != 1.0) { // image not yet fully loaded, have to wait before updateImageSize()
-            logger.info("showCurrentImage not yet loaded (${mv.iv.image.progress}), waiting...") // TODO
+            logger.info("showCurrentImage not yet loaded (${mv.iv.image.progress}), waiting...")
             mv.iv.image.progressProperty().addListener { _, _, newValue ->
-                logger.info("XXXXXX $newValue") // TODO
-                if (newValue == 1.0) mv.updateImageSize()
+                logger.info("showCurrentImage progress $newValue")
+                if (newValue == 1.0) mv.updateImage()
             }
-        } else mv.updateImageSize()
+        } else mv.updateImage()
     }
 
     // watches one directory, stops watching the first one before.
@@ -394,6 +396,7 @@ class MyImageList(private val mv: MainView) {
 
 class MyImage(val file: File?) : Comparable<MyImage> {
     var tags: String = ""
+    var exifOrientation: Int? = 0
     var geo: GeoLocation? = null
     val path: String get() = file?.absolutePath?:"no file"
     val size: Long get() = file?.length()?:0
@@ -420,23 +423,32 @@ class MyImage(val file: File?) : Comparable<MyImage> {
             logger.debug("myimage: loading ${file.toURI().toURL().toExternalForm()}")
             Image(file.toURI().toURL().toExternalForm(), loadinbg)
         }
+        readInfos() // to get rotation angle, could do better to avoid doing it twice (infos)
     }
 
     fun readInfos() {
-        if (file != null) {
-            val metadata = ImageMetadataReader.readMetadata(file)
-            tags = ""
-            tags += "$metadata\nTags:\n"
-            metadata.directories.forEach { directory ->
-                directory.tags.forEach { tags += it.toString() + "\n" }
+        val timeInMillis = measureTimeMillis {
+            if (file != null) {
+                val metadata = ImageMetadataReader.readMetadata(file)
+                tags = ""
+                tags += "$metadata\nTags:\n"
+                metadata.directories.forEach { directory ->
+                    directory.tags.forEach { tags += it.toString() + "\n" }
+                }
+                val gpsDirectory: GpsDirectory? = metadata.getFirstDirectoryOfType(GpsDirectory::class.java)
+                geo = gpsDirectory?.geoLocation
+                geo?.also { tags += "\ngeo: ${it.toDMSString()}" }
+                val exifDirectoryasdf: ExifIFD0Directory? =
+                    metadata.getFirstDirectoryOfType(ExifIFD0Directory::class.java)
+                exifOrientation = exifDirectoryasdf?.getInt(ExifIFD0Directory.TAG_ORIENTATION)
+                // flips are ignored... https://stackoverflow.com/questions/5905868/how-to-rotate-jpeg-images-based-on-the-orientation-metadata
+            } else {
+                geo = null
+                tags = ""
+                exifOrientation = null
             }
-            val gpsDirectory: GpsDirectory? = metadata.getFirstDirectoryOfType(GpsDirectory::class.java)
-            geo = gpsDirectory?.geoLocation
-            geo?.also { tags += "\ngeo: ${it.toDMSString()}" }
-        } else {
-            geo = null
-            tags = ""
         }
+        logger.debug("readinfos took $timeInMillis ms, file:${file?.path}")
     }
 
     override fun toString(): String = path
@@ -551,7 +563,7 @@ class MainView : UIComponent("WImageViewer") {
         children += statusBar
     }
 
-    fun updateImageSize(z: Zoom? = null, relangle: Int = 0) {
+    fun updateImage(z: Zoom? = null, relangle: Int = 0) {
         logger.debug("updateImageSize zoom=$z relangle=$relangle")
         when(z) {
             Zoom.IN -> currentZoom.value += 0.5
@@ -561,6 +573,14 @@ class MainView : UIComponent("WImageViewer") {
         }
         if (currentZoom.value <= 1.0) currentZoom.set(1.0)
 
+        if (relangle == 0) { // set initial image rotation from exif tag.
+            angle = when(il.currentImage.exifOrientation) {
+                3,4 -> 180 // ignores flips currently https://stackoverflow.com/questions/5905868/how-to-rotate-jpeg-images-based-on-the-orientation-metadata
+                5,6 -> 90
+                7,8 -> -90
+                else -> 0
+            }
+        }
         angle += relangle % 360
         stackPaneImage.rotate = angle.toDouble()
 
@@ -586,8 +606,8 @@ class MainView : UIComponent("WImageViewer") {
     }
 
     init {
-        root.heightProperty().onChange { updateImageSize() }
-        root.widthProperty().onChange { updateImageSize() }
+        root.heightProperty().onChange { updateImage() }
+        root.widthProperty().onChange { updateImage() }
     }
 }
 
@@ -636,9 +656,9 @@ class WImageViewer : App() {
             logger.debug("keytyped: char=${it.character} text=${it.text} code=${it.code}")
             when (it.character) {
                 "h" -> showHelp()
-                "+" -> mv.updateImageSize(Zoom.IN)
-                "-" -> mv.updateImageSize(Zoom.OUT)
-                "=" -> mv.updateImageSize(Zoom.FIT)
+                "+" -> mv.updateImage(Zoom.IN)
+                "-" -> mv.updateImage(Zoom.OUT)
+                "=" -> mv.updateImage(Zoom.FIT)
                 "d" -> LayoutDebugger().apply {
                     debuggingScene = FX.primaryStage.scene
                     openModal(modality = Modality.NONE)
@@ -647,7 +667,7 @@ class WImageViewer : App() {
                 "f" -> stage.isFullScreen = !stage.isFullScreen
                 "i" -> mv.showInfo()
                 "b" -> mv.toggleStatusBar()
-                "r" -> mv.updateImageSize(relangle = 90)
+                "r" -> mv.updateImage(relangle = 90)
                 "o" -> {
                     chooseDirectory("Open folder", mv.il.currentImage.file?.parentFile)?.also { f ->
                         mv.il.setFolder(f)
@@ -734,7 +754,7 @@ class WImageViewer : App() {
         }
 
         if (Settings.settings.lastImage != "") mv.il.setFolder(File(Settings.settings.lastImage))
-        mv.updateImageSize(Zoom.FIT)
+        mv.updateImage(Zoom.FIT)
 
     } // start
 

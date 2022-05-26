@@ -4,8 +4,8 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import org.openjfx.gradle.JavaFXModule
 import org.openjfx.gradle.JavaFXOptions
 
-val kotlinversion = "1.6.10"
-val javaversion = 17
+val kotlinversion = "1.6.21"
+val javaversion = 18
 group = "com.wolle.wimageviewer"
 version = "1.0-SNAPSHOT"
 val cPlatforms = listOf("mac","win") // compile for these platforms. "mac", "linux", "win"
@@ -20,10 +20,10 @@ buildscript {
 }
 
 plugins {
-    kotlin("jvm") version "1.6.10"
+    kotlin("jvm") version "1.6.21"
     id("idea")
     application
-    id("org.openjfx.javafxplugin") version "0.0.11"
+    id("org.openjfx.javafxplugin") version "0.0.13"
     id("com.github.ben-manes.versions") version "0.42.0"
     id("org.beryx.runtime") version "1.12.7"
 }
@@ -55,12 +55,12 @@ val javaFXOptions = the<JavaFXOptions>()
 dependencies {
     implementation("org.jetbrains.kotlin:kotlin-stdlib:$kotlinversion")
     implementation("org.jetbrains.kotlin:kotlin-reflect:$kotlinversion")
-    implementation("io.github.microutils:kotlin-logging:2.1.21")
+    implementation("io.github.microutils:kotlin-logging:2.1.23")
     implementation("org.slf4j:slf4j-simple:1.8.0-beta4") // no colors, everything stderr
     implementation("no.tornado:tornadofx:2.0.0-SNAPSHOT") { exclude("org.jetbrains.kotlin", "kotlin-stdlib-jdk8") } // https://github.com/edvin/tornadofx2
-    implementation("io.methvin:directory-watcher:0.15.0")
+    implementation("io.methvin:directory-watcher:0.15.1")
     implementation("org.controlsfx:controlsfx:11.1.1") { exclude("org.openjfx") }
-    implementation("com.drewnoakes:metadata-extractor:2.16.0")
+    implementation("com.drewnoakes:metadata-extractor:2.18.0")
 
     cPlatforms.forEach {platform ->
         val cfg = configurations.create("javafx_$platform")
@@ -159,7 +159,7 @@ open class CrossPackage : DefaultTask() {
                     File("$imgdir/bin/$execfilename.bat").delete() // from runtime, not nice
                     val pf = File("$imgdir/$execfilename.bat")
                     pf.writeText("""
-                        set JLINK_VM_OPTIONS="${project.application.applicationDefaultJvmArgs.joinToString(" ")}"
+                        set JLINK_VM_OPTIONS=${project.application.applicationDefaultJvmArgs.joinToString(" ")}
                         set DIR=%~dp0
                         start "" "%DIR%\bin\javaw" %JLINK_VM_OPTIONS% -classpath "%DIR%/lib/*" ${project.application.mainClass.get()} 
                     """.trimIndent())

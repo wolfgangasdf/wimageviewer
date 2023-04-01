@@ -3,15 +3,14 @@ import org.gradle.kotlin.dsl.support.zipTo
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import org.openjfx.gradle.JavaFXModule
 import org.openjfx.gradle.JavaFXOptions
+import java.util.*
 
-val kotlinversion = "1.6.21"
-val javaversion = 18
-group = "com.wolle.wimageviewer"
 version = "1.0-SNAPSHOT"
 val cPlatforms = listOf("mac","win") // compile for these platforms. "mac", "linux", "win"
-
+val kotlinVersion = "1.8.20"
+val javaVersion = 19
 println("Current Java version: ${JavaVersion.current()}")
-if (JavaVersion.current().majorVersion.toInt() < javaversion) throw GradleException("Use Java >= $javaversion")
+if (JavaVersion.current().majorVersion.toInt() != javaVersion) throw GradleException("Use Java $javaVersion")
 
 buildscript {
     repositories {
@@ -20,12 +19,16 @@ buildscript {
 }
 
 plugins {
-    kotlin("jvm") version "1.6.21"
+    kotlin("jvm") version "1.8.20"
     id("idea")
     application
     id("org.openjfx.javafxplugin") version "0.0.13"
-    id("com.github.ben-manes.versions") version "0.42.0"
-    id("org.beryx.runtime") version "1.12.7"
+    id("com.github.ben-manes.versions") version "0.44.0"
+    id("org.beryx.runtime") version "1.13.0"
+}
+
+kotlin {
+    jvmToolchain(javaVersion)
 }
 
 application {
@@ -37,29 +40,32 @@ application {
     )
 }
 
-
-
 repositories {
     mavenCentral()
     maven { setUrl("https://oss.sonatype.org/content/repositories/snapshots") } // https://github.com/edvin/tornadofx2
 }
 
 javafx {
-    version = "$javaversion"
+    version = "$javaVersion"
     modules("javafx.base", "javafx.controls", "javafx.web", "javafx.media", "javafx.graphics")
     // set compileOnly for crosspackage to avoid packaging host javafx jmods for all target platforms
-    configuration = if (project.gradle.startParameter.taskNames.intersect(listOf("crosspackage", "dist")).isNotEmpty()) "compileOnly" else "implementation"
+    if (project.gradle.startParameter.taskNames.intersect(listOf("crosspackage", "dist")).isNotEmpty()) {
+        configuration = "compileOnly"
+    }
 }
 val javaFXOptions = the<JavaFXOptions>()
 
 dependencies {
-    implementation("org.jetbrains.kotlin:kotlin-stdlib:$kotlinversion")
-    implementation("org.jetbrains.kotlin:kotlin-reflect:$kotlinversion")
-    implementation("io.github.microutils:kotlin-logging:2.1.23")
-    implementation("org.slf4j:slf4j-simple:1.8.0-beta4") // no colors, everything stderr
-    implementation("no.tornado:tornadofx:2.0.0-SNAPSHOT") { exclude("org.jetbrains.kotlin", "kotlin-stdlib-jdk8") } // https://github.com/edvin/tornadofx2
-    implementation("io.methvin:directory-watcher:0.15.1")
-    implementation("org.controlsfx:controlsfx:11.1.1") { exclude("org.openjfx") }
+    implementation("org.jetbrains.kotlin:kotlin-stdlib:$kotlinVersion")
+    implementation("org.jetbrains.kotlin:kotlin-reflect:$kotlinVersion")
+    implementation("io.github.microutils:kotlin-logging:3.0.5")
+    implementation("org.slf4j:slf4j-simple:2.0.7") // no colors, everything stderr
+    implementation("no.tornado:tornadofx:2.0.0-SNAPSHOT") {
+        exclude("org.jetbrains.kotlin", "kotlin-stdlib-jdk8")
+        exclude("org.openjfx")
+    }
+    implementation("io.methvin:directory-watcher:0.18.0")
+    implementation("org.controlsfx:controlsfx:11.1.2") { exclude("org.openjfx") }
     implementation("com.drewnoakes:metadata-extractor:2.18.0")
 
     cPlatforms.forEach {platform ->
@@ -77,9 +83,33 @@ runtime {
     modules.set(listOf("java.desktop", "java.logging", "java.prefs", "jdk.unsupported", "jdk.jfr", "jdk.jsobject", "jdk.xml.dom",
             "java.management", "java.net.http", "jdk.crypto.cryptoki","jdk.crypto.ec"))
 
-    if (cPlatforms.contains("mac")) targetPlatform("mac", System.getenv("JDK_MAC_HOME"))
-    if (cPlatforms.contains("win")) targetPlatform("win", System.getenv("JDK_WIN_HOME"))
-    if (cPlatforms.contains("linux")) targetPlatform("linux", System.getenv("JDK_LINUX_HOME"))
+    // sets targetPlatform JDK for host os from toolchain, for others (cross-package) from adoptium / jdkDownload
+    // https://github.com/beryx/badass-runtime-plugin/issues/99
+    // if https://github.com/gradle/gradle/issues/18817 is solved: use toolchain
+    fun setTargetPlatform(jfxplatformname: String) {
+        val platf = if (jfxplatformname == "win") "windows" else jfxplatformname // jfx expects "win" but adoptium needs "windows"
+        val os = org.gradle.internal.os.OperatingSystem.current()
+        val oss = if (os.isLinux) "linux" else if (os.isWindows) "windows" else if (os.isMacOsX) "mac" else ""
+        if (oss == "") throw GradleException("unsupported os")
+        if (oss == platf) {
+            targetPlatform(jfxplatformname, javaToolchains.launcherFor(java.toolchain).get().executablePath.asFile.parentFile.parentFile.absolutePath)
+        } else { // https://api.adoptium.net/q/swagger-ui/#/Binary/getBinary
+            targetPlatform(jfxplatformname) {
+                val ddir = "${if (os.isWindows) "c:/" else "/"}tmp/jdk$javaVersion-$platf"
+                println("downloading jdks to or using jdk from $ddir, delete folder to update jdk!")
+                @Suppress("INACCESSIBLE_TYPE")
+                setJdkHome(
+                    jdkDownload("https://api.adoptium.net/v3/binary/latest/$javaVersion/ga/$platf/x64/jdk/hotspot/normal/eclipse?project=jdk",
+                        closureOf<org.beryx.runtime.util.JdkUtil.JdkDownloadOptions> {
+                            downloadDir = ddir // put jdks here so different projects can use them!
+                            archiveExtension = if (platf == "windows") "zip" else "tar.gz"
+                        }
+                    )
+                )
+            }
+        }
+    }
+    cPlatforms.forEach { setTargetPlatform(it) }
 }
 
 open class CrossPackage : DefaultTask() {
@@ -200,7 +230,7 @@ tasks["runtime"].doLast {
 }
 
 tasks.withType<KotlinCompile> {
-    kotlinOptions.jvmTarget = "1.8"
+    kotlinOptions.jvmTarget = "$javaVersion"
 }
 
 
@@ -211,4 +241,17 @@ task("dist") {
         project.delete(project.runtime.imageDir.get(), project.runtime.jreDir.get(), "${project.buildDir.path}/install")
         println("Created zips in build/crosspackage")
     }
+}
+
+fun isNonStable(version: String): Boolean {
+    val stableKeyword = listOf("RELEASE", "FINAL", "GA").any { version.uppercase(Locale.getDefault()).contains(it) }
+    val regex = "^[0-9,.v-]+(-r)?$".toRegex()
+    val isStable = stableKeyword || regex.matches(version)
+    return isStable.not()
+}
+tasks.withType<com.github.benmanes.gradle.versions.updates.DependencyUpdatesTask> {
+    rejectVersionIf {
+        isNonStable(candidate.version)
+    }
+    gradleReleaseChannel = "current"
 }

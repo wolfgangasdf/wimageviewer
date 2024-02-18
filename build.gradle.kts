@@ -7,10 +7,11 @@ import java.util.*
 
 version = "1.0-SNAPSHOT"
 val cPlatforms = listOf("mac-aarch64", "linux", "win") // compile for these platforms. "mac", "mac-aarch64", "linux", "win"
-val kotlinVersion = "1.8.20"
-val javaVersion = 19
-println("Current Java version: ${JavaVersion.current()}")
-if (JavaVersion.current().majorVersion.toInt() != javaVersion) throw GradleException("Use Java $javaVersion")
+val kotlinVersion = "1.9.22"
+val needMajorJavaVersion = 21
+val javaVersion = System.getProperty("java.version")!!
+println("Current Java version: $javaVersion")
+if (JavaVersion.current().majorVersion.toInt() != needMajorJavaVersion) throw GradleException("Use Java $needMajorJavaVersion")
 
 buildscript {
     repositories {
@@ -19,7 +20,7 @@ buildscript {
 }
 
 plugins {
-    kotlin("jvm") version "1.8.20"
+    kotlin("jvm") version "1.9.22"
     id("idea")
     application
     id("org.openjfx.javafxplugin") version "0.0.13"
@@ -27,8 +28,15 @@ plugins {
     id("org.beryx.runtime") version "1.13.0"
 }
 
+idea {
+    module {
+        isDownloadJavadoc = true
+        isDownloadSources = true
+    }
+}
+
 kotlin {
-    jvmToolchain(javaVersion)
+    jvmToolchain(needMajorJavaVersion)
 }
 
 application {
@@ -46,7 +54,7 @@ repositories {
 }
 
 javafx {
-    version = "$javaVersion"
+    version = "21.0.2"
     modules("javafx.base", "javafx.controls", "javafx.web", "javafx.media", "javafx.graphics")
     // set compileOnly for crosspackage to avoid packaging host javafx jmods for all target platforms
     if (project.gradle.startParameter.taskNames.intersect(listOf("crosspackage", "dist")).isNotEmpty()) {
@@ -59,14 +67,14 @@ dependencies {
     implementation("org.jetbrains.kotlin:kotlin-stdlib:$kotlinVersion")
     implementation("org.jetbrains.kotlin:kotlin-reflect:$kotlinVersion")
     implementation("io.github.microutils:kotlin-logging:3.0.5")
-    implementation("org.slf4j:slf4j-simple:2.0.7") // no colors, everything stderr
+    implementation("org.slf4j:slf4j-simple:2.0.11") // no colors, everything stderr
     implementation("no.tornado:tornadofx:2.0.0-SNAPSHOT") {
         exclude("org.jetbrains.kotlin", "kotlin-stdlib-jdk8")
         exclude("org.openjfx")
     }
     implementation("io.methvin:directory-watcher:0.18.0")
-    implementation("org.controlsfx:controlsfx:11.1.2") { exclude("org.openjfx") }
-    implementation("com.drewnoakes:metadata-extractor:2.18.0")
+    implementation("org.controlsfx:controlsfx:11.2.0") { exclude("org.openjfx") }
+    implementation("com.drewnoakes:metadata-extractor:2.19.0")
 
     cPlatforms.forEach {platform ->
         val cfg = configurations.create("javafx_$platform")
@@ -100,7 +108,7 @@ runtime {
                 println("downloading jdks to or using jdk from $ddir, delete folder to update jdk!")
                 @Suppress("INACCESSIBLE_TYPE")
                 setJdkHome(
-                    jdkDownload("https://api.adoptium.net/v3/binary/latest/$javaVersion/ga/$platf/x64/jdk/hotspot/normal/eclipse?project=jdk",
+                    jdkDownload("https://api.adoptium.net/v3/binary/latest/$needMajorJavaVersion/ga/$platf/x64/jdk/hotspot/normal/eclipse?project=jdk",
                         closureOf<org.beryx.runtime.util.JdkUtil.JdkDownloadOptions> {
                             downloadDir = ddir // put jdks here so different projects can use them!
                             archiveExtension = if (platf == "windows") "zip" else "tar.gz"
@@ -231,7 +239,7 @@ tasks["runtime"].doLast {
 }
 
 tasks.withType<KotlinCompile> {
-    kotlinOptions.jvmTarget = "$javaVersion"
+    kotlinOptions.jvmTarget = "$needMajorJavaVersion"
 }
 
 

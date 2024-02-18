@@ -355,6 +355,7 @@ class MyImageList(private val mv: MainView) {
         }
     }
     init {
+        logger.info("initialize cachehelper...")
         thread(name = "cachehelper") {
             var lastcurrentidx = -1
             var needcaching = false
@@ -396,7 +397,7 @@ class MyImageList(private val mv: MainView) {
 
 class MyImage(val file: File?) : Comparable<MyImage> {
     var tags: String = ""
-    var exifOrientation: Int? = 0
+    var exifOrientation: Int? = null
     var geo: GeoLocation? = null
     val path: String get() = file?.absolutePath?:"no file"
     val size: Long get() = file?.length()?:0
@@ -440,7 +441,9 @@ class MyImage(val file: File?) : Comparable<MyImage> {
                 geo?.also { tags += "\ngeo: ${it.toDMSString()}" }
                 val exifDirectoryasdf: ExifIFD0Directory? =
                     metadata.getFirstDirectoryOfType(ExifIFD0Directory::class.java)
-                exifOrientation = exifDirectoryasdf?.getInt(ExifIFD0Directory.TAG_ORIENTATION)
+                if (exifDirectoryasdf?.containsTag(ExifIFD0Directory.TAG_ORIENTATION) == true) {
+                    exifOrientation = exifDirectoryasdf.getInt(ExifIFD0Directory.TAG_ORIENTATION)
+                }
                 // flips are ignored... https://stackoverflow.com/questions/5905868/how-to-rotate-jpeg-images-based-on-the-orientation-metadata
             } else {
                 geo = null
